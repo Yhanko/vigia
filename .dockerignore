@@ -1,0 +1,19 @@
+# Allowlist: ignora tudo e inclui apenas o que o build precisa.
+# Assim, ficheiros novos (segredos, .env, dumps, chaves) nunca entram no contexto
+# do build por omissão, e o contexto fica pequeno (builds mais rápidos).
+*
+
+!go.mod
+!go.sum
+!cmd/
+!internal/
+
+# Mesmo dentro das pastas permitidas, nunca enviar:
+**/.env
+**/.env.*
+**/*.pem
+**/*.key
+**/*.crt
+**/*.p12
+**/secrets/
+**/.DS_Store

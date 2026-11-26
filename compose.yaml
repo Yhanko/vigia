@@ -1,0 +1,219 @@
+# Ambiente local do Vigia (README, secções 16.5 e 26).
+#
+# Primeira vez:   ver "Configuração local" no README (cria .env e secrets/).
+# Subir:          docker compose up -d --build
+# Estado:         docker compose ps
+# Acesso da BD/Redis a partir do host (go run, psql):
+#                 docker compose -f compose.yaml -f compose.dev.yaml up -d
+#
+# Princípios de segurança aplicados a todos os serviços:
+#   - Imagens fixadas por versão e digest.
+#   - Passwords só em Docker secrets (ficheiros), nunca em variáveis de ambiente:
+#     variáveis aparecem em "docker inspect" e em logs de erro.
+#   - BD e Redis numa rede "internal": sem portas publicadas e sem saída para a internet.
+#   - Portas publicadas apenas em 127.0.0.1 (nunca expostas à rede local).
+#   - Sem capabilities por defeito, no-new-privileges, filesystem só de leitura
+#     quando o serviço o permite, limites de CPU, memória e processos.
+
+name: vigia
+
+x-hardening: &hardening
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+  restart: unless-stopped
+  init: false
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
+
+services:
+  # ─── API (backend Go) ──────────────────────────────────────────────────────────
+  api:
+    <<: *hardening
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+      args:
+        VERSION: ${VIGIA_VERSION:-dev}
+        COMMIT: ${VIGIA_COMMIT:-none}
+    image: vigia-api:${VIGIA_VERSION:-dev}
+    command: ["api"]
+    read_only: true
+    user: "65532:65532"
+    environment:
+      PORT: "8080"
+    ports:
+      - "127.0.0.1:${API_PORT:-8080}:8080"
+    networks:
+      - edge
+      - backend
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "/vigia", "healthcheck"]
+      interval: 15s
+      timeout: 3s
+      start_period: 5s
+      retries: 3
+    stop_grace_period: 15s
+    deploy:
+      resources:
+        limits:
+          pids: 256
+          cpus: "1.0"
+          memory: 256M
+
+  # ─── PostgreSQL + TimescaleDB ──────────────────────────────────────────────────
+  db:
+    <<: *hardening
+    image: timescale/timescaledb:2.32.1-pg18@sha256:70e6526ad8e31e3f4833f2c5863b50b92d7a6bee4d432ad1f660e2c6dd956d94
+    # O entrypoint oficial arranca como root para preparar o PGDATA e depois desce
+    # para o utilizador postgres; precisa apenas destas capabilities.
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+      - SETGID
+      - SETUID
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+      - /run/postgresql:size=8m,mode=2775,uid=70,gid=70
+    environment:
+      POSTGRES_USER: vigia
+      POSTGRES_DB: vigia
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+      # Rede: sempre SCRAM-SHA-256. Socket local (só acessível dentro do container,
+      # usado pelos scripts de init e pelo healthcheck): trust.
+      POSTGRES_INITDB_ARGS: "--auth-host=scram-sha-256 --auth-local=trust"
+      # Não enviar telemetria do TimescaleDB para fora.
+      TIMESCALEDB_TELEMETRY: "off"
+    command:
+      - postgres
+      - -c
+      - password_encryption=scram-sha-256
+      - -c
+      # Regista autenticações, não cada ligação recebida (evita ruído do healthcheck).
+      - log_connections=authentication,authorization
+      - -c
+      - log_disconnections=on
+      - -c
+      - log_min_duration_statement=500
+      - -c
+      - log_statement=ddl
+    secrets:
+      - postgres_password
+    volumes:
+      - pgdata:/var/lib/postgresql
+    networks:
+      - backend
+    shm_size: 256m
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -q -U vigia -d vigia"]
+      interval: 5s
+      timeout: 3s
+      # A primeira inicialização (initdb + tuning do TimescaleDB) pode demorar ~1-2 min.
+      start_period: 180s
+      start_interval: 2s
+      retries: 5
+    stop_grace_period: 30s
+    deploy:
+      resources:
+        limits:
+          pids: 512
+          cpus: "2.0"
+          memory: 1G
+
+  # ─── Redis (fila Asynq, locks, dedup, rate limit) ──────────────────────────────
+  redis:
+    <<: *hardening
+    image: redis:8.12.0-alpine3.23@sha256:5af80107c1eeecb484a2269b80a26d12bfa6521787da4663bd9f19f60a163483
+    user: "999:1000"
+    read_only: true
+    tmpfs:
+      - /run/redis:size=1m,mode=0700,uid=999,gid=1000
+    # Gera o ficheiro de ACL a partir do secret num tmpfs (não fica em disco nem na
+    # linha de comando). Bloqueia comandos administrativos e de limpeza total.
+    command:
+      - sh
+      - -c
+      - >-
+        set -eu; umask 077;
+        printf 'user default on >%s ~* &* +@all -@admin -flushall -flushdb\n'
+        "$$(cat /run/secrets/redis_password)" > /run/redis/users.acl;
+        exec redis-server /usr/local/etc/redis/redis.conf --aclfile /run/redis/users.acl
+    secrets:
+      - redis_password
+    volumes:
+      - ./infrastructure/docker/redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
+      - redisdata:/data
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD-SHELL", "REDISCLI_AUTH=\"$$(cat /run/secrets/redis_password)\" redis-cli ping | grep -q PONG"]
+      interval: 5s
+      timeout: 3s
+      start_period: 5s
+      retries: 10
+    stop_grace_period: 15s
+    deploy:
+      resources:
+        limits:
+          pids: 128
+          cpus: "1.0"
+          memory: 384M
+
+  # ─── Mailpit (servidor SMTP de teste; só desenvolvimento) ──────────────────────
+  mailpit:
+    <<: *hardening
+    image: axllent/mailpit:v1.34.0@sha256:23a2ef85bc50853ab3093645d1d64679afd8887e89da5e48a88940c172591a4e
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m
+    environment:
+      MP_DISABLE_VERSION_CHECK: "true"
+      MP_MAX_MESSAGES: "500"
+    ports:
+      - "127.0.0.1:${MAILPIT_UI_PORT:-8025}:8025"
+    networks:
+      - edge
+      - backend
+    healthcheck:
+      test: ["CMD", "/mailpit", "readyz"]
+      interval: 15s
+      timeout: 3s
+      start_period: 5s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          pids: 64
+          cpus: "0.5"
+          memory: 128M
+
+networks:
+  # Rede com saída: só para serviços que publicam portas no host.
+  edge:
+    driver: bridge
+  # Rede interna: sem acesso à internet nem portas publicadas.
+  backend:
+    driver: bridge
+    internal: true
+
+volumes:
+  pgdata:
+  redisdata:
+
+secrets:
+  postgres_password:
+    file: ./secrets/postgres_password.txt
+  redis_password:
+    file: ./secrets/redis_password.txt

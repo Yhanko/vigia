@@ -1,0 +1,25 @@
+# Overlay opcional: expõe a BD e o Redis em 127.0.0.1 para ferramentas no host
+# (go run ./cmd/vigia ..., psql, redis-cli). Não usar fora do desenvolvimento.
+#
+#   docker compose -f compose.yaml -f compose.dev.yaml up -d
+
+services:
+  db:
+    ports:
+      - "127.0.0.1:${DB_PORT:-5432}:5432"
+    networks:
+      - backend
+      - hostaccess
+
+  redis:
+    ports:
+      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
+    networks:
+      - backend
+      - hostaccess
+
+networks:
+  # Rede não interna, necessária para publicar portas; os serviços continuam
+  # acessíveis apenas em 127.0.0.1.
+  hostaccess:
+    driver: bridge
