@@ -1,0 +1,99 @@
+# CI mínimo do backend (README §16.1, TASKS 1.0).
+# Cada job é um check obrigatório para merge na main (configurar em
+# Settings → Branches → Branch protection rules).
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: lint (gofmt, vet, golangci-lint)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: gofmt
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "Ficheiros por formatar:"; echo "$unformatted"; exit 1
+          fi
+      - name: go vet
+        run: go vet ./...
+      - name: go mod tidy sem diferenças
+        run: |
+          go mod tidy
+          git diff --exit-code go.mod go.sum
+      - uses: golangci/golangci-lint-action@v9
+        with:
+          version: v2.15.0
+
+  test:
+    name: test (-race)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: go test -race
+        run: go test -race -count=1 -coverprofile=coverage.out ./...
+      - name: cobertura
+        run: go tool cover -func=coverage.out | tail -1
+
+  security:
+    name: security (govulncheck, gitleaks)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # gitleaks analisa todo o histórico
+          persist-credentials: false
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: govulncheck
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.10.0 ./...
+      # Binário oficial em container: a gitleaks-action exige licença em contas de organização.
+      - name: gitleaks
+        run: docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/repo" ghcr.io/gitleaks/gitleaks:v8.30.1 git /repo --redact --exit-code 1
+
+  docker:
+    name: docker (test stage + imagem)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@v4
+      - name: testes dentro do container
+        run: docker buildx build --target test .
+      - name: build da imagem runtime
+        run: docker buildx build --target runtime -t vigia:ci --load .
+      - name: compose válido
+        run: |
+          mkdir -p secrets
+          for n in postgres_password redis_password session_secret api_key_pepper encryption_key; do
+            openssl rand -hex 32 | tr -d '\n' > "secrets/$n.txt"
+          done
+          docker compose config --quiet

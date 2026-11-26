@@ -1,4 +1,4 @@
-// Comando vigia: um único binário com um subcomando por papel (README, secção 4.4).
+// Command vigia: single static binary with one subcommand per runtime role (README §4.4).
 package main
 
 import (
@@ -13,23 +13,28 @@ import (
 	"time"
 
 	"github.com/CipherPath/vigia/internal/platform/config"
+	"github.com/CipherPath/vigia/internal/platform/database"
 	"github.com/CipherPath/vigia/internal/platform/httpserver"
+	"github.com/CipherPath/vigia/internal/platform/queue"
+	"github.com/CipherPath/vigia/internal/platform/telemetry"
+	"github.com/CipherPath/vigia/migrations"
 )
 
-// Injectados no build com -ldflags "-X main.version=... -X main.commit=...".
+// Injected at build time via -ldflags "-X main.version=... -X main.commit=...".
 var (
 	version = "dev"
 	commit  = "none"
 )
 
-const usage = `Uso: vigia <comando>
+const usage = `Usage: vigia <command>
 
-Comandos:
-  api           Inicia a API HTTP
-  healthcheck   Verifica se a API local responde (para HEALTHCHECK de containers)
-  version       Mostra a versão do binário
+Commands:
+  api                            Start the HTTP API server
+  migrate [up|down|status|version]  Run embedded SQL database migrations (default: up)
+  healthcheck                    Check local /health/live (for container HEALTHCHECK)
+  version                        Print binary version
 
-Ainda não implementados: worker, scheduler, evaluator, dispatcher, migrate`
+Planned (next phases): worker, scheduler, evaluator, dispatcher`
 
 func main() {
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
@@ -43,6 +48,12 @@ func main() {
 	switch os.Args[1] {
 	case "api":
 		err = runAPI()
+	case "migrate":
+		action := "up"
+		if len(os.Args) >= 3 {
+			action = os.Args[2]
+		}
+		err = runMigrate(action)
 	case "healthcheck":
 		err = runHealthcheck()
 	case "version":
@@ -52,12 +63,12 @@ func main() {
 		fmt.Println(usage)
 		return
 	default:
-		fmt.Fprintf(os.Stderr, "comando desconhecido: %q\n\n%s\n", os.Args[1], usage)
+		fmt.Fprintf(os.Stderr, "unknown command: %q\n\n%s\n", os.Args[1], usage)
 		os.Exit(2)
 	}
 
 	if err != nil {
-		slog.Error("o processo terminou com erro", "error", err)
+		slog.Error("process exited with error", "error", err)
 		os.Exit(1)
 	}
 }
@@ -68,14 +79,67 @@ func runAPI() error {
 		return err
 	}
 
+	logger, err := telemetry.NewLogger(os.Stdout, cfg.LogLevel, "vigia-api", cfg.AppEnv)
+	if err != nil {
+		return err
+	}
+	slog.SetDefault(logger)
+
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	srv := httpserver.New(cfg.Port)
+	var checks []httpserver.ReadinessCheck
+
+	if cfg.DatabaseURL != "" {
+		dsn, err := cfg.DatabaseDSN()
+		if err != nil {
+			return err
+		}
+		pool, err := database.NewPool(ctx, dsn)
+		if err != nil {
+			return err
+		}
+		defer pool.Close()
+		logger.Info("connected to PostgreSQL")
+
+		checks = append(checks, httpserver.ReadinessCheck{
+			Name:  "postgres",
+			Check: func(c context.Context) error { return pool.Ping(c) },
+		})
+	} else {
+		logger.Warn("DATABASE_URL not set; running without database connection")
+	}
+
+	if cfg.RedisAddr != "" {
+		rdb, err := queue.NewRedisClient(ctx, cfg.RedisAddr, cfg.RedisPassword.Value())
+		if err != nil {
+			return err
+		}
+		defer rdb.Close()
+		logger.Info("connected to Redis", "addr", cfg.RedisAddr)
+
+		checks = append(checks, httpserver.ReadinessCheck{
+			Name:  "redis",
+			Check: func(c context.Context) error { return rdb.Ping(c).Err() },
+		})
+	} else {
+		logger.Warn("REDIS_ADDR not set; running without Redis connection")
+	}
+
+	srv := httpserver.New(httpserver.Options{
+		Port:            cfg.Port,
+		Version:         version,
+		Commit:          commit,
+		Logger:          logger,
+		CORSOrigins:     cfg.CORSOrigins,
+		MaxBodyBytes:    cfg.APIMaxBodyBytes,
+		HSTS:            cfg.AppEnv == "production",
+		ReadinessChecks: checks,
+	})
 
 	errCh := make(chan error, 1)
 	go func() {
-		slog.Info("API a escutar", "addr", srv.Addr, "version", version, "commit", commit)
+		logger.Info("API listening", "addr", srv.Addr, "version", version, "commit", commit)
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			errCh <- err
 		}
@@ -88,29 +152,63 @@ func runAPI() error {
 	case <-ctx.Done():
 	}
 
-	slog.Info("a encerrar a API")
+	logger.Info("shutting down API")
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	return srv.Shutdown(shutdownCtx)
 }
 
-// runHealthcheck chama /health/live no próprio container. Não escreve logs em caso
-// de sucesso, para não encher os logs a cada intervalo do HEALTHCHECK.
+func runMigrate(action string) error {
+	cfg, err := config.Load()
+	if err != nil {
+		return err
+	}
+
+	logger, err := telemetry.NewLogger(os.Stdout, cfg.LogLevel, "vigia-migrate", cfg.AppEnv)
+	if err != nil {
+		return err
+	}
+	slog.SetDefault(logger)
+
+	dsn, err := cfg.DatabaseDSN()
+	if err != nil {
+		return err
+	}
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	logger.Info("running database migrations", "action", action)
+	if err := database.Migrate(ctx, dsn, migrations.FS, action); err != nil {
+		return err
+	}
+	logger.Info("database migrations completed", "action", action)
+	return nil
+}
+
+// runHealthcheck probes /health/live inside the container without logging on success.
 func runHealthcheck() error {
 	cfg, err := config.Load()
 	if err != nil {
 		return err
 	}
 
-	client := &http.Client{Timeout: 2 * time.Second}
-	resp, err := client.Get(fmt.Sprintf("http://127.0.0.1:%d/health/live", cfg.Port))
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("http://127.0.0.1:%d/health/live", cfg.Port), nil)
 	if err != nil {
-		return fmt.Errorf("healthcheck falhou: %w", err)
+		return fmt.Errorf("healthcheck request: %w", err)
+	}
+	client := &http.Client{Timeout: 2 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("healthcheck failed: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("healthcheck falhou: status %d", resp.StatusCode)
+		return fmt.Errorf("healthcheck failed: status %d", resp.StatusCode)
 	}
 	return nil
 }

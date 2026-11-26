@@ -35,6 +35,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 FROM deps AS test
 COPY cmd ./cmd
 COPY internal ./internal
+COPY migrations ./migrations
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     go vet ./... && go test ./...
@@ -47,6 +48,7 @@ ARG VERSION=dev
 ARG COMMIT=none
 COPY cmd ./cmd
 COPY internal ./internal
+COPY migrations ./migrations
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     GOOS=${TARGETOS} GOARCH=${TARGETARCH} \

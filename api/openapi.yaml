@@ -1,0 +1,111 @@
+openapi: 3.1.0
+info:
+  title: Vigia API
+  version: 0.1.0
+  description: >
+    Unified monitoring, real-time alerting, audit, and error tracking platform.
+    Contract source of truth for backend (Go) and frontend/SDK (TypeScript).
+servers:
+  - url: http://127.0.0.1:8080/api/v1
+    description: Local development server
+
+paths:
+  /status:
+    get:
+      operationId: getStatus
+      summary: API status and build metadata
+      tags:
+        - system
+      responses:
+        "200":
+          description: Service is running
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatusResponse"
+        default:
+          description: Error response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: vigia_session
+      description: HttpOnly session cookie for browser UI authentication.
+    ingestKey:
+      type: http
+      scheme: bearer
+      bearerFormat: vg_ing_<prefix>_<secret>
+      description: Write-only telemetry ingestion key scoped to a project/environment.
+    clientToken:
+      type: http
+      scheme: bearer
+      bearerFormat: vg_cli_<prefix>_<secret>
+      description: Read-only client token for querying data and subscribing to SSE streams.
+
+  schemas:
+    StatusResponse:
+      type: object
+      required:
+        - service
+        - status
+        - version
+        - commit
+      properties:
+        service:
+          type: string
+          example: vigia
+        status:
+          type: string
+          example: ok
+        version:
+          type: string
+          example: dev
+        commit:
+          type: string
+          example: none
+
+    ErrorDetail:
+      type: object
+      required:
+        - message
+      properties:
+        field:
+          type: string
+        message:
+          type: string
+
+    ErrorBody:
+      type: object
+      required:
+        - code
+        - message
+        - requestId
+        - details
+      properties:
+        code:
+          type: string
+          example: RESOURCE_NOT_FOUND
+        message:
+          type: string
+          example: The requested resource was not found.
+        requestId:
+          type: string
+          example: req_019a2f7d8b4c9e1023456789
+        details:
+          type: array
+          items:
+            $ref: "#/components/schemas/ErrorDetail"
+
+    ErrorResponse:
+      type: object
+      required:
+        - error
+      properties:
+        error:
+          $ref: "#/components/schemas/ErrorBody"

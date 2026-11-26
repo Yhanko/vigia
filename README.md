@@ -3,7 +3,7 @@
 > Plataforma unificada de **monitoramento, alertas em tempo real, auditoria e error tracking**.
 > Une o essencial de **Sentry** (erros), **Grafana** (métricas/dashboards) e **Gotify** (notificações push) num único servidor leve, seguro e escalável.
 
-**Estado:** documento de arquitectura e plano de construção (proposta para V1). **O código actual é o esqueleto do backend em Go (a API responde "Olá, mundo!") e o ambiente Docker de desenvolvimento**; a plataforma descrita aqui ainda não está implementada. Ver [secção 26](#26-estado-actual-e-configuração-local).
+**Estado:** documento de arquitectura e plano de construção (proposta para V1). **O código actual é a fundação do backend em Go (configuração, servidor HTTP endurecido, BD, Redis, migrations, CI) e o ambiente Docker de desenvolvimento**; a plataforma descrita aqui ainda não está implementada. Ver [secção 26](#26-estado-actual-e-configuração-local).
 **Nome:** provisório
 **Idioma do código/API:** inglês · **Idioma da documentação:** português
 
@@ -31,7 +31,7 @@
 16. [DevOps, CI/CD e deploy](#16-devops-cicd-e-deploy)
 17. [Retenção, privacidade e quotas](#17-retenção-privacidade-e-quotas)
 18. [Frontend](#18-frontend)
-19. [SDK Node.js](#19-sdk-nodejs)
+19. [SDKs](#19-sdks)
 20. [Roadmap por fases](#20-roadmap-por-fases)
 21. [Definition of Done](#21-definition-of-done)
 22. [Checklist de produção](#22-checklist-de-produção)
@@ -104,6 +104,18 @@ Quem usa Grafana + Gotify (ou Sentry + Grafana + scripts) mantém vários servi�
 
 A **V1** corresponde às fases 0–8 do roadmap (20.1). O que vem depois é posterior à V1.
 
+### 3.0 Primeiro produto (MVP)
+
+Depois da fundação (fase 1), o primeiro produto entregue a clientes é o **MVP de error tracking (fase 2)**: é onde há mais dor e menos oferta acessível localmente.
+
+- **Ingestão compatível com os SDKs Sentry:** os clientes usam os SDKs oficiais Sentry (qualquer linguagem) e só trocam o DSN para apontar ao Vigia; quem já usa Sentry migra em minutos, sem reinstrumentar o código.
+- **Issues** com agrupamento, regressões, releases e source maps.
+- **Alertas de erro:** novo issue, regressão e pico.
+- **Notificações por email, Telegram e WhatsApp.**
+- UI mínima e go-live com TLS, backups testados e monitorização externa.
+
+Métricas, incidentes completos, tempo real (SSE), webhooks, Web Push, collectors e uptime vêm nas fases seguintes.
+
 ### 3.1 Incluído na V1
 
 - Organizations, membros, teams, roles e permissões.
@@ -113,9 +125,9 @@ A **V1** corresponde às fases 0–8 do roadmap (20.1). O que vem depois é post
 - Collectors pull (GET JSON e BD read-only).
 - Uptime checks HTTP/HTTPS.
 - Regras de alerta, estado e incidentes com timeline.
-- Notificações: SSE (in-app), Web Push, email, webhook.
+- Notificações: email, Telegram, WhatsApp (fase 2); SSE in-app (fase 4); webhook e Web Push (fase 5).
 - Query API de métricas + dashboards simples.
-- Error tracking (SDK Node, fingerprint, issues) — fase 7.
+- Error tracking compatível com os SDKs Sentry (fingerprint, issues, releases, source maps) — fase 2.
 - Audit logs, quotas, rate limits, retenção.
 - CI/CD, testes, backups, monitorização interna.
 
@@ -128,7 +140,8 @@ A **V1** corresponde às fases 0–8 do roadmap (20.1). O que vem depois é post
 ### 3.3 Fora de escopo (V1)
 
 - Tracing distribuído completo e service maps.
-- SDKs para muitas linguagens, agent de host.
+- Performance, session replay e profiling dos SDKs Sentry (os itens são aceites e descartados).
+- SDKs próprios (os SDKs Sentry cobrem as linguagens), agent de host.
 - Apps mobile nativas, SSO/SAML/OIDC.
 - Multi-region activo-activo, Kubernetes operator.
 - Billing automatizado, marketplace de integrações, AI root-cause.
@@ -276,7 +289,7 @@ Domínios iniciais:
 - **ClickHouse:** para a telemetria, quando o Timescale mostrar limites reais (ver 8.5).
 - **River (fila em PostgreSQL):** permite enfileirar na mesma transacção da mudança de estado, o que simplifica a outbox. Contra: põe a carga da fila na BD principal. Avaliar no ADR-004.
 - **RabbitMQ / NATS / Kafka:** só se Asynq deixar de bastar (routing complexo, volume extremo).
-- **Node.js + TypeScript:** opção inicial, substituída por Go no backend pela performance do hot path de ingestão, menor consumo de memória, concorrência nativa e deploy de um binário estático (ADR-013). Mantém-se no frontend e no SDK Node.
+- **Node.js + TypeScript:** opção inicial, substituída por Go no backend pela performance do hot path de ingestão, menor consumo de memória, concorrência nativa e deploy de um binário estático (ADR-013). Mantém-se no frontend.
 
 ### 5.3 Licenciamento
 
@@ -315,6 +328,7 @@ vigia/
 │   │   ├── redaction/       # regras de redacção partilhadas
 │   │   ├── ssrf/            # cliente HTTP seguro (11.2)
 │   │   ├── config/          # validação de env
+│   │   ├── clock/           # relógio injectável para testes de tempo
 │   │   └── telemetry/       # slog, OpenTelemetry, métricas Prometheus
 │   └── api/                 # código gerado a partir da spec OpenAPI
 ├── api/
@@ -323,7 +337,7 @@ vigia/
 ├── queries/            # SQL de entrada para o sqlc
 ├── web/                # React + TypeScript
 ├── sdks/
-│   └── node/           # SDK Node.js (secção 19)
+│   └── node/           # SDK Node próprio (adiado para a fase 10, secção 19)
 ├── infrastructure/
 │   ├── docker/         # configuração dos serviços (ex.: redis/redis.conf)
 │   └── monitoring/
@@ -351,7 +365,7 @@ Testes unitários e de integração ficam ao lado do código (`*_test.go`), como
 
 ### 7.1 Ingestão (push)
 
-**Endpoints:** `POST /api/v1/ingest/metrics | events | errors` (`errors` na fase 7; `logs` só na fase 9)
+**Endpoints:** `POST /api/v1/ingest/metrics | events` (fase 3; `logs` só na fase 9). Os erros entram pelos endpoints compatíveis com os SDKs Sentry (7.8), não por aqui.
 
 Regras:
 
@@ -562,7 +576,7 @@ Campos: severidade, título, projecto/ambiente afectado, origem (regra/monitor/i
 
 ### 7.7 Notificações
 
-**Canais V1:** SSE (in-app; WebSocket só se surgir necessidade bidireccional, ADR-011), Web Push, Email, Webhook.
+**Canais V1:** Email, **Telegram** e **WhatsApp** (fase 2, MVP); SSE in-app (fase 4; WebSocket só se surgir necessidade bidireccional, ADR-011); Webhook e Web Push (fase 5).
 
 **Destinatários:** utilizadores ou teams, definidos na notification policy.
 
@@ -591,6 +605,19 @@ Campos: severidade, título, projecto/ambiente afectado, origem (regra/monitor/i
 - Segredo por destino, encriptado em repouso, com rotação.
 - Destinos em allowlist quando possível; mesmas defesas SSRF dos collectors (11.2).
 
+**Telegram** (Bot API):
+
+- Um bot da plataforma; o utilizador liga a conta por deep link `t.me/<bot>?start=<token>` (token de uso único e curta duração) ou associa um grupo com `/link <token>`.
+- Webhook de entrada validado pelo header `X-Telegram-Bot-Api-Secret-Token`.
+- Conteúdo dos eventos sempre escapado (HTML do Telegram); `chat_id` encriptado; destino desactivado quando o bot é bloqueado.
+
+**WhatsApp** (WhatsApp Business Platform, fornecedor no ADR-018):
+
+- Só API oficial (Cloud API da Meta ou BSP); bibliotecas não oficiais são proibidas.
+- Mensagens fora da janela de 24 h exigem **templates aprovados** (categoria *utility*); custo por mensagem → quota mensal por organização e anti-ruído obrigatório.
+- **Opt-in verificado:** o número (E.164) só recebe alertas depois de confirmar um código enviado por WhatsApp; opt-out imediato.
+- Webhook de estados validado por assinatura (`X-Hub-Signature-256`); números encriptados em repouso e mascarados na UI.
+
 **Web Push:**
 
 - VAPID; endpoints e keys das subscriptions armazenados com protecção adequada.
@@ -605,22 +632,27 @@ Campos: severidade, título, projecto/ambiente afectado, origem (regra/monitor/i
 - Tratar bounces e complaints.
 - Templates acessíveis; sem payloads sensíveis.
 
-### 7.8 Error tracking (fase 7)
+### 7.8 Error tracking (fase 2 — MVP)
 
-**Captura (SDK Node, secção 19):** excepções, unhandled exceptions/rejections (com cuidado: capturar não substitui shutdown/recovery), tipo e mensagem, stack trace, serviço, ambiente, release, timestamp, trace ID, contexto de request minimizado e breadcrumbs limitados e redigidos.
+**Captura pelos SDKs oficiais Sentry (secção 19):** o Vigia implementa o protocolo de ingestão dos SDKs Sentry (`POST /api/<project_id>/envelope/` e o legado `/store/`, autenticação `X-Sentry-Auth` com `sentry_version=7`). O cliente aponta o DSN ao Vigia e os SDKs enviam excepções, unhandled exceptions/rejections, tipo e mensagem, stack trace, ambiente, release, contexto (OS, runtime, browser, device), utilizador, request minimizado, tags e breadcrumbs. Detalhes (itens suportados, limites, matriz de SDKs) no ADR-017.
+
+- Itens que não são erros (`transaction`, `session`, `replay`, `profile`, `attachment`, `client_report`, …) são aceites com `200` e descartados no MVP, para os SDKs não falharem.
+- Rate limit e quotas respondem `429` com `Retry-After` e `X-Sentry-Rate-Limits`, que os SDKs respeitam.
+- Source maps (JavaScript) e releases fazem parte do MVP: sem eles, stack traces minificados não servem.
+- O protocolo é implementado a partir da documentação pública dos SDKs; **nenhum código do servidor Sentry** é usado e a marca Sentry não faz parte do produto (só "compatível com SDKs Sentry").
 
 **Fingerprint:**
 
-- Determinístico: tipo de erro + frames normalizados (sem paths absolutos, sem valores dinâmicos).
-- Nunca usar só a mensagem (IDs/valores variáveis explodem o número de issues).
+- Determinístico: tipo de erro + frames `in_app` normalizados (sem paths absolutos, sem números de linha, sem valores dinâmicos).
+- Nunca usar só a mensagem (IDs/valores variáveis explodem o número de issues); fallback para mensagem normalizada.
 - Evitar agrupar erros diferentes.
-- Override de fingerprint permitido.
+- Override de fingerprint permitido, incluindo o campo `fingerprint` dos SDKs Sentry com `{{ default }}`.
 
 **Issue lifecycle:** `unresolved | resolved | ignored`; **reabre** em nova ocorrência após `resolved`.
 
 **Acções:** resolver, resolver na próxima release *(futuro)*, ignorar, atribuir, nota, ligar a incidente.
 
-**Regras de alerta:** novo issue, pico de ocorrências, regressão por release.
+**Regras de alerta:** novo issue, pico de ocorrências, regressão (incl. por release). No MVP o reconhecimento é o próprio estado do issue (`resolved`/`ignored`); a ligação a incidentes chega na fase 4.
 
 **Privacidade:**
 
@@ -825,7 +857,11 @@ Prefixo `/api/v1`. JSON, timestamps UTC ISO-8601, IDs opacos, OpenAPI gerado e v
 
 **Credentials:** `GET|POST /projects/:id/credentials` · `POST /credentials/:id/rotate` · `POST /credentials/:id/revoke`
 
-**Ingestão:** `POST /ingest/metrics` · `/ingest/events` · `/ingest/errors` (fase 7) · `/ingest/logs` e `/ingest/otel` (fase 9)
+**Ingestão:** `POST /ingest/metrics` · `/ingest/events` (fase 3) · `/ingest/logs` e `/ingest/otel` (fase 9)
+
+**Ingestão compatível com SDKs Sentry (fora de `/api/v1`, contrato dos SDKs; fase 2):** `POST /api/<project_id>/envelope/` · `POST /api/<project_id>/store/`
+
+**Integrações de entrada (fase 2):** `POST /integrations/telegram/webhook` · `GET|POST /integrations/whatsapp/webhook`
 
 **Collectors:** `GET|POST /projects/:id/collectors` · `GET|PATCH|DELETE /collectors/:id` · `POST /collectors/:id/test` · `POST /collectors/:id/run`
 
@@ -874,11 +910,12 @@ Ficam **fora** do prefixo `/api/v1` e da API de produto, expostos apenas na rede
 | Credencial | Uso | Permissões |
 |---|---|---|
 | **Ingest key** (`vg_ing_<prefix>_<secret>`) | Enviar dados | Só escrita de telemetria, presa a um projecto/ambiente |
+| **DSN key** (pública, no DSN `https://<key>@<host>/<project_id>`) | SDKs Sentry enviam erros (fase 2) | Só escrita de erros, presa a um projecto/ambiente; é **pública por natureza** (vai no JavaScript do browser), por isso protegida por rate limit, quotas, `allowed_origins` e revogação |
 | **Client token** (`vg_cli_...`) | Ouvir alertas / ler dados | Só leitura |
 | **Sessão de utilizador** | UI e administração | RBAC por organização |
 | **Integration credential** | Segredos de collectors/destinos | Encriptada (envelope encryption / secret manager), nunca devolvida |
 
-Uma ingest key **nunca** serve como credencial administrativa.
+Uma ingest key ou DSN key **nunca** serve como credencial administrativa nem de leitura.
 
 ### 10.2 Ciclo de vida das keys
 
@@ -1040,8 +1077,11 @@ Controlos obrigatórios:
 | Email transaccional | Resend, Postmark, Amazon SES, SMTP próprio | Via adaptador; SPF/DKIM/DMARC; tratar bounces |
 | Web Push | Protocolo Web Push + VAPID (lib `webpush-go`) | Sem serviço pago obrigatório |
 | Push mobile (futuro) | Firebase Cloud Messaging / APNs | Só com app mobile |
-| Chat/ops | Slack incoming webhooks, Telegram Bot API, Microsoft Teams, Discord | Como destinos de webhook; mesmas defesas SSRF |
-| SMS / WhatsApp (opcional) | Twilio ou provider local | Custo por mensagem; limitar por quota |
+| Telegram (fase 2) | Telegram Bot API | Canal nativo; gratuito; ligação por deep link |
+| WhatsApp (fase 2) | WhatsApp Business Platform: Cloud API da Meta ou BSP (Twilio, 360dialog, Infobip) | ADR-018; verificação da empresa na Meta, templates aprovados, custo por mensagem, opt-in |
+| SDKs de clientes (fase 2) | SDKs oficiais Sentry (MIT) | Protocolo de ingestão compatível (7.8, 19, ADR-017) |
+| Chat/ops | Slack incoming webhooks, Microsoft Teams, Discord | Como destinos de webhook (fase 5); mesmas defesas SSRF |
+| SMS (opcional) | Twilio ou provider local | Custo por mensagem; limitar por quota |
 | Telemetria aberta | OpenTelemetry (OTLP/HTTP), Prometheus (`remote_write` ou scrape) | Compatibilidade documentada por versão |
 | Autenticação futura | OIDC (Google/Microsoft), SAML enterprise | Adiado |
 | Object storage | S3 / compatível (MinIO, R2) | Exports, anexos |
@@ -1288,11 +1328,19 @@ Selector de ambiente · saúde dos serviços · métricas · erros · incidentes
 
 ---
 
-## 19. SDK Node.js
+## 19. SDKs
 
-SDK para as **aplicações dos clientes** escritas em Node.js; é independente da linguagem do backend (Go). Vive em `sdks/node/` e fala com a API de ingestão pelo contrato OpenAPI. A plataforma instrumenta-se a si própria com OpenTelemetry Go (14.3), sem precisar deste SDK.
+### 19.0 Decisão: SDKs Sentry em vez de SDK próprio
 
-### 19.1 API desejada
+Os clientes usam os **SDKs oficiais Sentry** (licença MIT, mantidos pela comunidade Sentry para JavaScript/Node, browser, Python, PHP/Laravel, Java/Android, .NET, Go, Ruby, React Native, Flutter, …) com o DSN do Vigia:
+
+```js
+Sentry.init({ dsn: "https://<public_key>@<host-do-vigia>/<project_id>" });
+```
+
+O DSN do Vigia tem o formato dos SDKs Sentry: `public_key` é uma chave pública só de escrita de erros (10.1) e `project_id` é o identificador numérico público do projecto. O SDK próprio descrito abaixo fica **adiado para a fase 10** e só será feito se surgir uma necessidade que os SDKs Sentry não cubram (por exemplo, métricas da secção 7.4).
+
+### 19.1 SDK Node próprio (adiado) — API desejada
 
 ```ts
 const client = createVigiaClient({
@@ -1333,17 +1381,17 @@ Express/Fastify/NestJS: contexto de request, correlação de trace, captura de e
 |---|---|---|
 | **0. Discovery** | Scope V1, user journeys, threat model curto, ADRs principais, SLOs, classificação de dados, diagramas, convenções do repositório | Scope aprovado, decisões documentadas, riscos e critérios de aceitação listados |
 | **1. Fundação** | Monorepo, config/env validada, logging, BD, migrations, auth, orgs, RBAC, projectos/ambientes, API keys, audit, CI | Auth + isolamento tenant em E2E; pipeline verde; backup/restore testado |
-| **2. Métricas** | Ingestão, fila, workers, Timescale, query API, métricas host/aplicação, quotas e cardinalidade | Load test base aprovado; comportamento sob sobrecarga documentado; retenção validada |
-| **3. Alertas e incidentes** | Schemas de regras, evaluator, estado, dedup, incidentes, timeline, SSE | E2E ingest → alerta → incidente |
-| **4. Notificações** | Outbox, dispatcher, email, webhook (HMAC), Web Push, preferências, retries/DLQ | Entrega verificada com falhas simuladas; idempotência testada |
-| **5. Pull collectors** | `http_get_json`, `db_readonly` com cursor, mapping, SSRF defenses | Suite SSRF aprovada; revisão de segurança dedicada |
-| **6. Uptime e dashboards** | Scheduler, checks HTTP, resultados, cálculo de uptime, dashboards | Falha/recuperação provadas; SSRF coberto |
-| **7. Error tracking** | SDK Node, ingestão, fingerprint, issues, stack, releases, UI, regras | Suites de agrupamento, redacção e resiliência do SDK |
-| **8. Hardening** | Revisão de segurança, load/chaos, backup/restore, runbooks, SLO dashboard, rollback, revisão do isolamento de tenants | Checklist de produção aprovado; riscos residuais aceites por escrito |
+| **2. MVP: error tracking + notificações** | Ingestão compatível com SDKs Sentry (envelope/store, DSN), issues e agrupamento, source maps e releases, alertas de erro (novo, regressão, pico), outbox + dispatcher, email/Telegram/WhatsApp, UI mínima, go-live mínimo | SDKs Sentry de ≥ 5 plataformas funcionam só com troca de DSN; alerta → notificação nos 3 canais com falhas simuladas; go-live mínimo aprovado |
+| **3. Métricas** | Ingestão de telemetria, Timescale, query API, métricas host/aplicação, quotas e cardinalidade | Load test base aprovado; comportamento sob sobrecarga documentado; retenção validada |
+| **4. Alertas de métricas e incidentes** | Evaluator, estado, dedup, incidentes, timeline, silences, SSE | E2E ingest → alerta → incidente → notificação |
+| **5. Webhooks e Web Push** | Cliente SSRF, webhooks com HMAC e Challenge-Echo, Web Push | Suite SSRF base aprovada; assinaturas verificáveis |
+| **6. Pull collectors** | `http_get_json`, `db_readonly` com cursor, mapping, SSRF defenses | Suite SSRF completa; revisão de segurança dedicada |
+| **7. Uptime e dashboards** | Checks HTTP, resultados, cálculo de uptime, dashboards | Falha/recuperação provadas; SSRF coberto |
+| **8. Hardening e escala** | Revisão de segurança, load/chaos, runbooks, SLO dashboard, canary, separação de processos, revisão do isolamento de tenants | Checklist de produção aprovado; riscos residuais aceites por escrito |
 | **9. Logs e traces** | OTLP, pipeline de logs, armazenamento de traces, correlação, service map, retenção, limites de query | Só se houver necessidade real |
-| **10. Expansão** | Mais SDKs, agent, integrações, mobile, enterprise | Orientada por uso |
+| **10. Expansão** | SDK próprio (se necessário), agent, replays/profiling, integrações, mobile, enterprise | Orientada por uso |
 
-As fases executam-se **pela ordem da tabela**; não implementar todos os módulos em paralelo.
+As fases executam-se **pela ordem da tabela**; não implementar todos os módulos em paralelo. A ordem foi revista em 2026-11-26: o error tracking (antes fase 7) passou a ser o primeiro produto, porque é onde há mais dor e menos oferta acessível localmente.
 
 ### 20.2 Primeiros passos concretos
 
@@ -1358,7 +1406,7 @@ As fases executam-se **pela ordem da tabela**; não implementar todos os módulo
 9. Implementar auth e organizations.
 10. Implementar projects/environments/API credentials.
 11. Criar testes de isolamento de tenant.
-12. Fazer revisão antes de iniciar a ingestão.
+12. Fazer revisão antes de iniciar a ingestão compatível com SDKs Sentry (fase 2).
 
 ---
 
@@ -1470,6 +1518,11 @@ Cada decisão que altera a arquitectura tem um ADR em `docs/adr/` com: contexto,
 | 012 | Segurança dos collectors pull (BD e endpoints) |
 | 013 | Go como linguagem do backend (substitui Node.js/TypeScript) |
 | 014 | Acesso a dados: sqlc + pgx vs ORM (GORM/ent) |
+| 015 | Gestão de chaves de encriptação (envelope encryption, rotação) |
+| 016 | Armazenamento de eventos genéricos (`/ingest/events`) |
+| 017 | Compatibilidade com o protocolo de ingestão dos SDKs Sentry |
+| 018 | Fornecedor de WhatsApp (Cloud API da Meta vs BSP) |
+| 019 | Fornecedor de email transaccional em produção |
 
 ### 24.2 Perguntas a validar antes de codar
 
@@ -1528,24 +1581,37 @@ Também não foram cobertos acessibilidade (WCAG), suporte de browsers, internac
 
 ### 26.1 O que existe hoje
 
-**Backend Go (esqueleto).** Módulo `github.com/CipherPath/vigia` com a estrutura da secção 6. Estão implementados os subcomandos `api`, `healthcheck` e `version`:
+**Backend Go (fundação da plataforma, fase 1.1).** Módulo `github.com/CipherPath/vigia` com a estrutura da secção 6. Subcomandos implementados: `api`, `migrate [up|down|status|version]`, `healthcheck` e `version`.
 
 | Método | Rota | Comportamento |
 |---|---|---|
-| `GET` | `/` | Devolve `Olá, mundo!` |
 | `GET` | `/health/live` | Liveness (`200`) |
+| `GET` | `/health/ready` | Readiness: verifica PostgreSQL e Redis quando configurados (`200` ou `503`, sem detalhes internos) |
+| `GET` | `/api/v1/status` | Serviço, versão e commit |
 
-- `PORT` é opcional (por defeito `8080`); um valor inválido faz o processo falhar no arranque.
-- Logs em JSON (`log/slog`) e encerramento gracioso com `Ctrl+C`/`SIGTERM`.
-- Código em `cmd/vigia/main.go`, `internal/platform/httpserver` e `internal/platform/config`.
+Qualquer outra rota devolve o envelope de erro da secção 9.1 (`RESOURCE_NOT_FOUND`, `METHOD_NOT_ALLOWED`).
+
+| Pacote | Conteúdo |
+|---|---|
+| `internal/platform/config` | Validação das variáveis da 26.4 e leitura de segredos `*_FILE` num tipo `Secret` que se redige em `fmt`/`slog`. **Fail-fast fora de `development`:** em `staging`/`production` exige BD, Redis e as três chaves (≥ 32 caracteres); em `production` exige `APP_URL` e origens CORS em `https` |
+| `internal/platform/httpserver` | Router `chi`; middlewares de `X-Request-Id` saneado, security headers (CSP `default-src 'none'`, HSTS em produção), recovery sem fuga de detalhes, logging JSON por rota, CORS por allowlist exacta, limite de body; `DecodeJSON` estrito (rejeita campos desconhecidos e dados extra) |
+| `internal/platform/database` | Pool `pgx`, `WithTx` e migrations `goose` embutidas no binário (`migrations/`) |
+| `internal/platform/queue` | Cliente Redis autenticado |
+| `internal/platform/telemetry` | Logger `slog` JSON com `service` e `environment` |
+| `internal/platform/clock` | Relógio injectável (`clock.System` / `clock.Fake`) para testes determinísticos |
+
+- Timeouts HTTP explícitos, logs em JSON e encerramento gracioso com `Ctrl+C`/`SIGTERM`.
+- Em `development` BD e Redis são opcionais: sem `DATABASE_URL`/`REDIS_ADDR` a API arranca sozinha.
+
+**CI** (`.github/workflows/ci.yml`): `gofmt`, `go vet`, `go mod tidy` sem diferenças, `golangci-lint` (configuração em `.golangci.yml`, com `gosec`, `depguard` e APIs proibidas), `go test -race`, `govulncheck`, `gitleaks` sobre todo o histórico, testes no container, build da imagem e validação do compose. Dependências actualizadas pelo Dependabot com 7 dias de espera.
 
 **Ambiente Docker** (já funcional):
 
 | Ficheiro | Função |
 |---|---|
 | `Dockerfile` | Build multi-stage: testes (`--target test`), binário estático e imagem final `distroless` não-root (~17 MB) |
-| `.dockerignore` | Allowlist: só `go.mod`, `go.sum`, `cmd/` e `internal/` entram no contexto do build |
-| `compose.yaml` | `api`, `db` (PostgreSQL 18 + TimescaleDB), `redis` e `mailpit` |
+| `.dockerignore` | Allowlist: só `go.mod`, `go.sum`, `cmd/`, `internal/` e `migrations/` entram no contexto do build |
+| `compose.yaml` | `migrate` (job one-shot), `api`, `db` (PostgreSQL 18 + TimescaleDB), `redis` e `mailpit` |
 | `compose.dev.yaml` | Overlay opcional que expõe BD e Redis em `127.0.0.1` para ferramentas no host |
 | `infrastructure/docker/redis/redis.conf` | Configuração do Redis (durabilidade, `noeviction`, comandos de debug desactivados) |
 | `secrets/` | Passwords como Docker secrets (ignoradas pelo git); ver `secrets/README.md` |
@@ -1559,8 +1625,9 @@ Pré-requisitos: Go 1.27+ e Docker com Compose v2.
 
    ```bash
    cp .env.example .env
-   openssl rand -hex 32 | tr -d '\n' > secrets/postgres_password.txt
-   openssl rand -hex 32 | tr -d '\n' > secrets/redis_password.txt
+   for n in postgres_password redis_password session_secret api_key_pepper encryption_key; do
+     [ -f "secrets/$n.txt" ] || openssl rand -hex 32 | tr -d '\n' > "secrets/$n.txt"
+   done
    ```
 
    Em PowerShell, ver `secrets/README.md`. Sem estes ficheiros o compose recusa arrancar: nunca há password por defeito.
@@ -1569,18 +1636,24 @@ Pré-requisitos: Go 1.27+ e Docker com Compose v2.
 
    ```bash
    docker compose up -d --build
-   docker compose ps                    # todos os serviços devem ficar "healthy"
-   curl http://127.0.0.1:8080/          # Olá, mundo!
+   docker compose ps                              # db/redis/api "healthy"; migrate "exited (0)"
+   curl http://127.0.0.1:8080/api/v1/status
+   curl http://127.0.0.1:8080/health/ready       # {"status":"ok","checks":{"postgres":"ok","redis":"ok"}}
    ```
 
-   A primeira inicialização da BD demora 1–2 minutos (initdb + tuning do TimescaleDB).
+   A primeira inicialização da BD demora 1–2 minutos (initdb + tuning do TimescaleDB). O serviço `migrate` aplica as migrations e termina; a `api` só arranca depois dele.
 
 3. Desenvolver a API no host, com a BD e o Redis no Docker:
 
    ```bash
    docker compose -f compose.yaml -f compose.dev.yaml up -d db redis
+   export DATABASE_URL=postgresql://vigia@127.0.0.1:5432/vigia?sslmode=disable
+   export DATABASE_PASSWORD_FILE=secrets/postgres_password.txt
+   export REDIS_ADDR=127.0.0.1:6379 REDIS_PASSWORD_FILE=secrets/redis_password.txt
+   go run ./cmd/vigia migrate up
    go run ./cmd/vigia api
-   go test ./...
+   go test -race ./...                            # o race detector precisa de CGO (gcc)
+   golangci-lint run ./...
    ```
 
 | Serviço | Endereço no host | Notas |
@@ -1608,11 +1681,11 @@ docker compose down -v                             # pára e APAGA os volumes
 - **Redis:** autenticação obrigatória; `FLUSHALL`, `FLUSHDB` e comandos administrativos (`CONFIG`, `ACL`, `DEBUG`, ...) bloqueados; `maxmemory-policy noeviction` para a fila nunca perder jobs.
 - **PostgreSQL:** SCRAM-SHA-256 na rede; registo de autenticações, DDL e queries lentas (> 500 ms); telemetria do TimescaleDB desligada.
 - **Mailpit:** sem verificação de versão (nenhum pedido para fora).
-- **Pendente:** scan de vulnerabilidades das imagens (`docker scout` ou Trivy) e `govulncheck` no CI (16.1).
+- **Pendente:** scan de vulnerabilidades das imagens (`docker scout` ou Trivy) no CI (16.1); o `govulncheck` já corre.
 
-### 26.4 Variáveis da plataforma (alvo)
+### 26.4 Variáveis da plataforma
 
-> Ainda não usadas pelo código. Valores secretos chegam sempre como ficheiro (`*_FILE`), nunca no valor da variável.
+> Todas são lidas e validadas por `internal/platform/config`; as de SMTP, VAPID, ingestão e queries só passam a ter efeito nas fases que as usam. Valores secretos chegam sempre como ficheiro (`*_FILE`), nunca no valor da variável. `CORS_ORIGINS` aceita apenas origens exactas (`scheme://host[:port]`, sem `*` nem caminho).
 
 ```bash
 APP_ENV=development
@@ -1630,6 +1703,7 @@ API_KEY_PEPPER_FILE=/run/secrets/api_key_pepper
 ENCRYPTION_KEY_FILE=/run/secrets/encryption_key
 CORS_ORIGINS=http://127.0.0.1:5173
 
+API_MAX_BODY_BYTES=262144
 INGEST_MAX_PAYLOAD_BYTES=1048576
 INGEST_MAX_BATCH_ITEMS=500
 QUERY_MAX_RANGE_DAYS=31
@@ -1642,7 +1716,7 @@ VAPID_SUBJECT=mailto:ops@example.com
 
 ### 26.5 Arranque completo (alvo)
 
-> Comandos previstos a partir da fase 1 (20.1); **ainda não funcionam**.
+> `migrate`, `api` e os testes já funcionam (26.2); `go generate`, `worker`, `scheduler`, `evaluator`, `dispatcher` e o frontend chegam nas fases seguintes (20.1).
 
 ```bash
 go generate ./...                  # sqlc + oapi-codegen

@@ -31,6 +31,44 @@ x-hardening: &hardening
       max-file: "3"
 
 services:
+  # ─── Migrations (job one-shot antes da API) ────────────────────────────────────
+  # Aplica as migrations embutidas no binário e termina. A API só arranca depois
+  # de este job terminar com sucesso.
+  migrate:
+    <<: *hardening
+    image: vigia-api:${VIGIA_VERSION:-dev}
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+      args:
+        VERSION: ${VIGIA_VERSION:-dev}
+        COMMIT: ${VIGIA_COMMIT:-none}
+    command: ["migrate", "up"]
+    restart: "no"
+    read_only: true
+    user: "65532:65532"
+    environment:
+      APP_ENV: development
+      LOG_LEVEL: info
+      DATABASE_URL: postgresql://vigia@db:5432/vigia?sslmode=disable
+      DATABASE_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets:
+      - postgres_password
+    networks:
+      - backend
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      disable: true
+    deploy:
+      resources:
+        limits:
+          pids: 64
+          cpus: "0.5"
+          memory: 128M
+
   # ─── API (backend Go) ──────────────────────────────────────────────────────────
   api:
     <<: *hardening
@@ -46,13 +84,31 @@ services:
     read_only: true
     user: "65532:65532"
     environment:
+      APP_ENV: development
       PORT: "8080"
+      LOG_LEVEL: info
+      DATABASE_URL: postgresql://vigia@db:5432/vigia?sslmode=disable
+      DATABASE_PASSWORD_FILE: /run/secrets/postgres_password
+      REDIS_ADDR: redis:6379
+      REDIS_PASSWORD_FILE: /run/secrets/redis_password
+      SESSION_SECRET_FILE: /run/secrets/session_secret
+      API_KEY_PEPPER_FILE: /run/secrets/api_key_pepper
+      ENCRYPTION_KEY_FILE: /run/secrets/encryption_key
+      SMTP_URL: smtp://mailpit:1025
+    secrets:
+      - postgres_password
+      - redis_password
+      - session_secret
+      - api_key_pepper
+      - encryption_key
     ports:
       - "127.0.0.1:${API_PORT:-8080}:8080"
     networks:
       - edge
       - backend
     depends_on:
+      migrate:
+        condition: service_completed_successfully
       db:
         condition: service_healthy
       redis:
@@ -217,3 +273,9 @@ secrets:
     file: ./secrets/postgres_password.txt
   redis_password:
     file: ./secrets/redis_password.txt
+  session_secret:
+    file: ./secrets/session_secret.txt
+  api_key_pepper:
+    file: ./secrets/api_key_pepper.txt
+  encryption_key:
+    file: ./secrets/encryption_key.txt

@@ -1,0 +1,73 @@
+# golangci-lint v2 (README §16.1). Corre no CI e localmente:
+#   golangci-lint run ./...
+version: "2"
+
+run:
+  timeout: 5m
+  tests: true
+
+linters:
+  default: standard # errcheck, govet, ineffassign, staticcheck, unused
+  enable:
+    - gosec       # SAST (README §11.8)
+    - bodyclose   # respostas HTTP sempre fechadas
+    - noctx       # pedidos HTTP/SQL sempre com context
+    - errorlint   # errors.Is/As em vez de comparação directa
+    - depguard    # regras de fronteira (README §4.5)
+    - forbidigo   # APIs proibidas (SSRF, logging fora do slog)
+    - copyloopvar
+    - nilerr
+    - rowserrcheck
+    - sqlclosecheck
+    - unconvert
+  settings:
+    depguard:
+      rules:
+        # A plataforma é infra-estrutura partilhada: nunca depende de domínios.
+        platform-is-domain-free:
+          files:
+            - "**/internal/platform/**"
+          deny:
+            - pkg: github.com/CipherPath/vigia/internal/modules
+              desc: "internal/platform não pode importar módulos de domínio (README §4.5)"
+        # Bibliotecas substituídas pela stdlib ou por alternativas seguras.
+        banned-packages:
+          deny:
+            - pkg: io/ioutil
+              desc: "obsoleto: usar io e os"
+            - pkg: math/rand$
+              desc: "usar crypto/rand para tokens; math/rand/v2 só para jitter"
+            - pkg: github.com/pkg/errors
+              desc: "usar errors e fmt.Errorf com %w"
+            - pkg: log$
+              desc: "usar log/slog (README §14.2)"
+    forbidigo:
+      analyze-types: true
+      forbid:
+        - pattern: ^http\.(Get|Head|Post|PostForm)$
+          msg: "pedidos de saída sem timeout; usar um http.Client explícito (ou o cliente ssrf para destinos de utilizadores, README §11.2)"
+        - pattern: ^http\.DefaultClient$
+          msg: "sem timeout e sem protecção SSRF; usar um http.Client explícito ou o cliente ssrf"
+        - pattern: ^fmt\.Print(f|ln)?$
+          msg: "usar log/slog; fmt.Print só no CLI (cmd/)"
+  exclusions:
+    presets:
+      - std-error-handling
+    rules:
+      # O CLI escreve para o terminal (uso, versão, status de migrations).
+      - path: ^cmd/
+        linters: [forbidigo]
+      - path: internal/platform/database/database.go
+        text: "fmt.Print"
+        linters: [forbidigo]
+      - path: _test\.go
+        linters: [gosec, noctx]
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/CipherPath/vigia
