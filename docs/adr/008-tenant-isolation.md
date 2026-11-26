@@ -1,9 +1,9 @@
 # ADR-008: Isolamento multi-tenant (aplicação + PostgreSQL RLS)
 
-- **Estado:** Proposto (em segunda revisão do CTO)
+- **Estado:** Aceite
 - **Data:** 2026-11-26
 - **Responsável:** Desenvolvedor (Gemini)
-- **Revisão CTO:** Em revisão (decisão dos dois roles aprovada; correcções aplicadas em 2026-11-26)
+- **Revisão CTO:** Aprovado (2026-11-26)
 - **Fase bloqueada:** Antes da 1.2
 - **Referências:** README §2, §8.1, §8.6, §11.1, §11.9, §24.1; ADR-003, ADR-005; TASKS 1.2, 1.4
 

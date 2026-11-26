@@ -188,22 +188,22 @@
 ### 0.2 ADRs obrigatórios em `docs/adr/` (§24.1)
 > Formato: contexto, alternativas, decisão, consequências, riscos, data, responsável; protótipo/benchmark quando técnico. O texto em *itálico* diz que fase fica bloqueada sem o ADR. Todos os ADRs são 🧭.
 
-- [~] Template `docs/adr/000-template.md` — *escrito em `docs/fase0-adrs-base`; aguarda revisão do CTO 🧭*
-- [~] ADR-001: Monorepo e monólito modular — *antes da Fase 1; escrito em `docs/fase0-adrs-base`, aguarda revisão do CTO 🧭*
-- [~] ADR-002: PostgreSQL para metadata — *antes da Fase 1; escrito em `docs/fase0-adrs-base`, aguarda revisão do CTO 🧭*
+- [x] Template `docs/adr/000-template.md` — *aprovado pelo CTO (2026-11-26) e fundido na `main`*
+- [x] ADR-001: Monorepo e monólito modular — *antes da Fase 1; aceite (2026-11-26) e fundido na `main`*
+- [x] ADR-002: PostgreSQL para metadata — *antes da Fase 1; aceite (2026-11-26) e fundido na `main`*
 - [ ] ADR-003: TimescaleDB vs ClickHouse para telemetria (**incl. revisão da Timescale License**, §5.3) e onde vivem os `issue_events` — *antes da Fase 2*
 - [ ] ADR-004: Asynq vs River vs RabbitMQ/NATS; semântica de entrega (at-least-once + dedup) — *antes da Fase 2*
-- [~] ADR-005: Autenticação (sessões, cookies, CSRF) e formato/hash das API keys, **incluindo o tipo "DSN key" pública** (2.1) — *antes da 1.2; escrito em `docs/fase0-adr-005-auth-keys-dsn`, aguarda revisão do CTO 🧭*
+- [x] ADR-005: Autenticação (sessões, cookies, CSRF) e formato/hash das API keys, **incluindo o tipo "DSN key" pública** (2.1) — *antes da 1.2; aceite (2026-11-26) e fundido na `main`*
 - [ ] ADR-006: Ingestão OpenTelemetry — *antes da Fase 9*
 - [ ] ADR-007: Modelo de métricas e cardinalidade — *antes da Fase 3*
-- [~] ADR-008: Isolamento de tenant (aplicação + RLS) — *antes da 1.2; escrito em `docs/fase0-adr-008-tenant-isolation`, aguarda revisão do CTO 🧭*
+- [x] ADR-008: Isolamento de tenant (aplicação + RLS) — *antes da 1.2; aceite (2026-11-26) e fundido na `main`*
 - [ ] ADR-009: Retenção e quotas (eventos de erro/dia, mensagens WhatsApp/mês) — *antes da Fase 2*
 - [ ] ADR-010: Estratégia de deploy — *antes do go-live da Fase 2 (2.9)*
 - [ ] ADR-011: SSE vs WebSocket; autenticação do stream; fan-out entre réplicas — *antes da Fase 4*
 - [ ] ADR-012: Segurança dos collectors pull (BD e endpoints) — *antes da Fase 6*
-- [~] ADR-013: Go como linguagem do backend — *já decidido; formalizado em `docs/fase0-adrs-base`, aguarda revisão do CTO 🧭*
-- [~] ADR-014: Acesso a dados (`sqlc` + `pgx` vs ORM) — *já decidido; formalizado em `docs/fase0-adrs-base`, aguarda revisão do CTO 🧭*
-- [~] ADR-015: Gestão de chaves de encriptação (envelope encryption, KEK/DEK, rotação) — *antes da 1.2 (antecipado por decisão do CTO em 2026-11-26); escrito em `docs/fase0-adr-015-envelope-encryption`, aguarda revisão do CTO 🧭*
+- [x] ADR-013: Go como linguagem do backend — *aceite (2026-11-26) e fundido na `main`*
+- [x] ADR-014: Acesso a dados (`sqlc` + `pgx` vs ORM) — *aceite (2026-11-26) e fundido na `main`*
+- [x] ADR-015: Gestão de chaves de encriptação (envelope encryption, KEK/DEK, rotação) — *antes da 1.2; aceite (2026-11-26) e fundido na `main`*
 - [ ] ADR-016: Armazenamento de "events" genéricos (`/ingest/events`) — *antes da Fase 3*
 - [ ] **ADR-017: Compatibilidade com o protocolo de ingestão dos SDKs Sentry** — *antes da Fase 2*. Tem de fixar:
   - versão do protocolo (`sentry_version=7`), endpoints (`/api/<project_id>/envelope/` e `/store/`) e formatos de autenticação (`X-Sentry-Auth`, query `sentry_key`);
@@ -216,16 +216,16 @@
 - [ ] **ADR-019: Fornecedor de email transaccional em produção** (Resend, Postmark, Amazon SES ou SMTP próprio) — *antes de 2.9*
 
 ### 0.3 Segurança, requisitos e convenções
-- [~] Threat model formal em `docs/security/threat-model.md` (activos e ameaças da §11.7, STRIDE por fronteira de confiança) (§11.7) — *escrito em `docs/fase0-threat-model`; aprovado pelo CTO, aguarda merge*
-- [~] Classificação de dados (público / interno / confidencial / segredo) e **lista de dados proibidos** de ingestão (§17.3, §20.1) — *escrito em `docs/security/data-classification.md` (`docs/fase0-03-security-slos-ceo`); aguarda revisão/merge*
-- [~] SLOs iniciais e metas de capacidade documentados (§14.4, §25.2), incl. **RPO/RTO** por classe de dado (§16.6) — *escrito em `docs/architecture/slos-capacity.md` (`docs/fase0-03-security-slos-ceo`); aguarda revisão/merge*
-- [~] Respostas escritas às 12 perguntas da §24.2 (público-alvo, modelo SaaS/self-hosted, volume, retenção default, alvo de deploy…) — *`docs/decisions/perguntas-ceo.md` respondido pelo CEO em 2026-11-26; aguarda merge*
-- [~] Valores concretos da §25.3: política de passwords, duração de sessão, expiração padrão das keys, valores de rate limit, definição de severidades, regras de reabertura (incidente/issue) — *escrito em `docs/decisions/business-defaults.md` (`docs/fase0-03-security-slos-ceo`); aguarda revisão/merge*
-- [~] **Catálogo de códigos de erro da API** + política de versionamento/depreciação (§25.3, §9.1) em `docs/api/` — *escrito em `docs/api/error-catalog.md` (`docs/fase0-03-api-product-flows`); aguarda revisão/merge*
-- [~] Personas, user journeys e lista numerada de requisitos (`RF-001…`) com critério de aceitação (§25.1) — *escrito em `docs/product/requirements.md` (`docs/fase0-03-api-product-flows`); aguarda revisão/merge*
-- [~] Fluxos completos: convite, recuperação de conta, eliminação de organização/projecto, **transferência de ownership** (§25.1) — *escrito em `docs/product/critical-flows.md` (`docs/fase0-03-api-product-flows`); aguarda revisão/merge*
-- [~] Convenções Go escritas (erros com `%w`, `context` em toda a I/O, concorrência limitada, nomes de pacotes, testes table-driven) (§23) — *escrito em `docs/engineering/go-conventions.md` (`docs/fase0-03-go-conventions-diagrams`); aguarda revisão/merge*
-- [~] Diagramas de arquitectura e fluxo actualizados em `docs/` (§20.1) — *escrito em `docs/architecture/diagrams.md` (`docs/fase0-03-go-conventions-diagrams`); aguarda revisão/merge*
+- [x] Threat model formal em `docs/security/threat-model.md` (activos e ameaças da §11.7, STRIDE por fronteira de confiança) (§11.7)
+- [x] Classificação de dados (público / interno / confidencial / segredo) e **lista de dados proibidos** de ingestão (§17.3, §20.1) — `docs/security/data-classification.md`
+- [x] SLOs iniciais e metas de capacidade documentados (§14.4, §25.2), incl. **RPO/RTO** por classe de dado (§16.6) — `docs/architecture/slos-capacity.md`
+- [x] Respostas escritas às 12 perguntas da §24.2 (público-alvo, modelo SaaS/self-hosted, volume, retenção default, alvo de deploy…) — `docs/decisions/perguntas-ceo.md` (respondido pelo CEO em 2026-11-26)
+- [x] Valores concretos da §25.3: política de passwords, duração de sessão, expiração padrão das keys, valores de rate limit, definição de severidades, regras de reabertura (incidente/issue) — `docs/decisions/business-defaults.md`
+- [x] **Catálogo de códigos de erro da API** + política de versionamento/depreciação (§25.3, §9.1) — `docs/api/error-catalog.md`
+- [x] Personas, user journeys e lista numerada de requisitos (`RF-001…`) com critério de aceitação (§25.1) — `docs/product/requirements.md`
+- [x] Fluxos completos: convite, recuperação de conta, eliminação de organização/projecto, **transferência de ownership** (§25.1) — `docs/product/critical-flows.md`
+- [x] Convenções Go escritas (erros com `%w`, `context` em toda a I/O, concorrência limitada, nomes de pacotes, testes table-driven) (§23) — `docs/engineering/go-conventions.md`
+- [x] Diagramas de arquitectura e fluxo actualizados em `docs/` (§20.1) — `docs/architecture/diagrams.md`
 
 ---
 
