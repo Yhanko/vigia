@@ -1,0 +1,5 @@
+# False positives in published commit 8c2184d: deterministic dummy test keys
+# in internal/platform/crypto/crypto_test.go (no real secret value).
+# Subsequent commits generate test keys at runtime instead of using literals.
+8c2184d8d836a3a1f4dcb4c135c17adcf70396eb:internal/platform/crypto/crypto_test.go:generic-api-key:14
+8c2184d8d836a3a1f4dcb4c135c17adcf70396eb:internal/platform/crypto/crypto_test.go:generic-api-key:15

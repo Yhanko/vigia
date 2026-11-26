@@ -11,12 +11,15 @@ import (
 )
 
 const (
-	testKey1Hex = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-	testKey2Hex = "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210"
 	testOrgUUID = "aaaa1111-1111-4111-8111-111111111111"
 	testOrg2    = "bbbb2222-2222-4222-8222-222222222222"
 	testUUID1   = "11111111-1111-4111-8111-111111111111"
 	testUUID2   = "22222222-2222-4222-8222-222222222222"
+)
+
+var (
+	testKey1Hex = hex.EncodeToString(bytes.Repeat([]byte{0x11}, keySizeBytes))
+	testKey2Hex = hex.EncodeToString(bytes.Repeat([]byte{0x22}, keySizeBytes))
 )
 
 func testScope() Scope {
@@ -51,8 +54,8 @@ func TestParseKeyringAndRedaction(t *testing.T) {
 }
 
 func TestParseKeyringValidationAndNoKeyLeakInErrors(t *testing.T) {
-	secretSample := "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
-	badHexSample := "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz"
+	secretSample := hex.EncodeToString(bytes.Repeat([]byte{0xde}, keySizeBytes))
+	badHexSample := strings.Repeat("z", keyHexLen)
 
 	tests := []struct {
 		name string
