@@ -264,9 +264,9 @@
   - [x] `/health/ready` e futuro `/metrics` num **listener interno separado** (`ADMIN_PORT`) em vez da porta pública (§9.3)
 - [~] Configuração do `sqlc` (`sqlc.yaml` + `queries/`) (§5.1)
   - [ ] `queries/` ainda está vazio: primeira query real na 1.2 + `//go:generate sqlc generate` + `sqlc diff` no CI
-- [~] Contrato base `api/openapi.yaml` (§5.1, §9)
-  - [ ] Configurar `oapi-codegen` (tipos + interface de servidor `chi`) para `internal/api` com `go generate` e verificação "sem diferenças" no CI (§5.1, §16.1)
-  - [ ] Lint da spec (ex.: `redocly lint`/`spectral`) no CI
+- [x] Contrato base `api/openapi.yaml` (§5.1, §9)
+  - [x] Configurar `oapi-codegen` (tipos + interface de servidor `chi`) para `internal/api` com `go generate` e verificação "sem diferenças" no CI (§5.1, §16.1)
+  - [x] Lint da spec (`redocly/cli:1.34.5`) no CI
 - [x] `Dockerfile`, `.dockerignore` e `compose.yaml` (secrets montados na API, `migrations/` incluídas)
   - [x] Docker secrets `session_secret`, `api_key_pepper`, `encryption_key` + `secrets/README.md` (geração idempotente em bash e PowerShell)
   - [x] Serviço `migrate` one-shot; a `api` espera por `service_completed_successfully`

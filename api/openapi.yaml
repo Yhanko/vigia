@@ -5,6 +5,8 @@ info:
   description: >
     Unified monitoring, real-time alerting, audit, and error tracking platform.
     Contract source of truth for backend (Go) and frontend/SDK (TypeScript).
+  license:
+    name: Proprietary
 servers:
   - url: http://127.0.0.1:8080/api/v1
     description: Local development server
@@ -14,6 +16,7 @@ paths:
     get:
       operationId: getStatus
       summary: API status and build metadata
+      security: []
       tags:
         - system
       responses:
@@ -23,6 +26,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/StatusResponse"
+        "429":
+          description: Rate limit exceeded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
         default:
           description: Error response
           content:

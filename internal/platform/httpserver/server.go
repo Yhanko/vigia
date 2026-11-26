@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+
+	"github.com/Yhanko/vigia/internal/api"
 )
 
 // ReadinessCheck verifies that an external dependency (e.g. PostgreSQL, Redis) is reachable.
@@ -64,19 +66,34 @@ func NewHandler(opts Options) http.Handler {
 		WriteError(w, req, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "The HTTP method is not allowed for this endpoint.")
 	})
 
-	// Versioned product API (README §9).
-	r.Route("/api/v1", func(api chi.Router) {
-		api.Get("/status", func(w http.ResponseWriter, _ *http.Request) {
-			WriteJSON(w, http.StatusOK, map[string]string{
-				"service": "vigia",
-				"status":  "ok",
-				"version": opts.Version,
-				"commit":  opts.Commit,
-			})
+	// Versioned product API (README §9), wired through the oapi-codegen ServerInterface.
+	r.Route("/api/v1", func(v1 chi.Router) {
+		api.HandlerWithOptions(apiHandlers{
+			version: opts.Version,
+			commit:  opts.Commit,
+		}, api.ChiServerOptions{
+			BaseRouter: v1,
+			ErrorHandlerFunc: func(w http.ResponseWriter, req *http.Request, _ error) {
+				WriteError(w, req, http.StatusBadRequest, "VALIDATION_FAILED", "Invalid request parameters.")
+			},
 		})
 	})
 
 	return r
+}
+
+type apiHandlers struct {
+	version string
+	commit  string
+}
+
+func (h apiHandlers) GetStatus(w http.ResponseWriter, _ *http.Request) {
+	WriteJSON(w, http.StatusOK, api.StatusResponse{
+		Service: "vigia",
+		Status:  "ok",
+		Version: h.version,
+		Commit:  h.commit,
+	})
 }
 
 // NewAdminHandler constructs the internal operational router (README §9.3).
