@@ -112,6 +112,7 @@ Para manter as políticas RLS das tabelas 100% uniformes (apenas `organization_i
 ### Negativas / Trade-offs aceites
 - Obriga a gerir dois roles PostgreSQL (`vigia` e `vigia_app`) e dois Docker secrets (`postgres_password` e `postgres_app_password`) desde a Fase 1.2.
 - Operações de leitura tenant-scoped correm dentro de `WithTenantTx` (overhead mínimo em PostgreSQL, mas exige disciplina para nunca manter transacções abertas durante chamadas HTTP externas).
+- **Eliminação de organizações (`ON DELETE RESTRICT` em `audit_logs`):** as linhas em `organizations` nunca são apagadas fisicamente (passam apenas a `status = 'deleted'`). O processo de purge apaga os dados dependentes do tenant (projectos, eventos, credenciais, destinos), mantendo a linha mínima da organização e os `audit_logs` mínimos exigidos para integridade forense e conformidade legal.
 
 ## 5. Riscos e mitigação
 

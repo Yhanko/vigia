@@ -64,6 +64,17 @@ func TestDatabaseIntegration(t *testing.T) {
 	dsn := startTimescaleContainer(t)
 	ctx := context.Background()
 
+	rawPass := make([]byte, 24)
+	if _, err := rand.Read(rawPass); err != nil {
+		t.Fatal(err)
+	}
+	appPass := hex.EncodeToString(rawPass)
+
+	// Ensure cluster-level roles exist before running migrations that GRANT to them.
+	if err := EnsureRoles(ctx, dsn, appPass); err != nil {
+		t.Fatalf("initial EnsureRoles: %v", err)
+	}
+
 	t.Run("Migrate up, version, down, up", func(t *testing.T) {
 		if err := Migrate(ctx, dsn, migrations.FS, "up"); err != nil {
 			t.Fatalf("Migrate up: %v", err)
@@ -162,16 +173,7 @@ func TestDatabaseIntegration(t *testing.T) {
 	})
 
 	t.Run("EnsureRoles creates SCRAM-SHA-256 vigia_app without superuser/bypassrls", func(t *testing.T) {
-		rawPass := make([]byte, 24)
-		if _, err := rand.Read(rawPass); err != nil {
-			t.Fatal(err)
-		}
-		appPass := hex.EncodeToString(rawPass)
-
 		// Must be idempotent across repeated invocations.
-		if err := EnsureRoles(ctx, dsn, appPass); err != nil {
-			t.Fatalf("first EnsureRoles: %v", err)
-		}
 		if err := EnsureRoles(ctx, dsn, appPass); err != nil {
 			t.Fatalf("second EnsureRoles (idempotent): %v", err)
 		}
@@ -217,6 +219,216 @@ func TestDatabaseIntegration(t *testing.T) {
 		} {
 			if _, err := appPool.Exec(ctx, forbidden); err == nil {
 				t.Fatalf("vigia_app unexpectedly succeeded on forbidden statement: %s", forbidden)
+			}
+		}
+	})
+
+	t.Run("Catalog guard: every public table with organization_id has ENABLE+FORCE RLS and audit_logs is append-only", func(t *testing.T) {
+		adminPool, err := NewPool(ctx, dsn, PoolOptions{MaxConns: 2, StatementTimeout: 5 * time.Second})
+		if err != nil {
+			t.Fatalf("admin pool: %v", err)
+		}
+		defer adminPool.Close()
+
+		rows, err := adminPool.Query(ctx, `
+			SELECT c.relname, c.relrowsecurity, c.relforcerowsecurity
+			FROM pg_class c
+			JOIN pg_namespace n ON n.oid = c.relnamespace
+			JOIN pg_attribute a ON a.attrelid = c.oid
+			WHERE n.nspname = 'public'
+			  AND c.relkind IN ('r', 'p')
+			  AND a.attname = 'organization_id'
+			  AND NOT a.attisdropped
+			ORDER BY c.relname
+		`)
+		if err != nil {
+			t.Fatalf("query pg_class catalog: %v", err)
+		}
+		defer rows.Close()
+
+		checked := 0
+		for rows.Next() {
+			var table string
+			var rlsEnabled, rlsForced bool
+			if err := rows.Scan(&table, &rlsEnabled, &rlsForced); err != nil {
+				t.Fatalf("scan catalog row: %v", err)
+			}
+			checked++
+			if !rlsEnabled || !rlsForced {
+				t.Fatalf("table %q has organization_id but RLS flags are (enabled=%v, forced=%v); both must be true", table, rlsEnabled, rlsForced)
+			}
+		}
+		if err := rows.Err(); err != nil {
+			t.Fatalf("catalog rows err: %v", err)
+		}
+		if checked < 5 {
+			t.Fatalf("expected at least 5 tenant-scoped tables with organization_id, checked %d", checked)
+		}
+
+		// Verify organizations itself also has ENABLE + FORCE RLS.
+		var orgEnabled, orgForced bool
+		if err := adminPool.QueryRow(ctx, `
+			SELECT c.relrowsecurity, c.relforcerowsecurity
+			FROM pg_class c
+			JOIN pg_namespace n ON n.oid = c.relnamespace
+			WHERE n.nspname = 'public' AND c.relname = 'organizations'
+		`).Scan(&orgEnabled, &orgForced); err != nil {
+			t.Fatalf("query organizations RLS: %v", err)
+		}
+		if !orgEnabled || !orgForced {
+			t.Fatalf("organizations RLS flags = (%v, %v), want (true, true)", orgEnabled, orgForced)
+		}
+
+		// Guard: vigia_app must NEVER have UPDATE or DELETE on audit_logs.
+		var canUpdate, canDelete bool
+		if err := adminPool.QueryRow(ctx, `
+			SELECT has_table_privilege('vigia_app', 'public.audit_logs', 'UPDATE'),
+			       has_table_privilege('vigia_app', 'public.audit_logs', 'DELETE')
+		`).Scan(&canUpdate, &canDelete); err != nil {
+			t.Fatalf("query audit_logs privileges: %v", err)
+		}
+		if canUpdate || canDelete {
+			t.Fatalf("vigia_app has forbidden audit_logs privileges: UPDATE=%v DELETE=%v", canUpdate, canDelete)
+		}
+	})
+
+	t.Run("RLS fail-closed, cross-tenant isolation, and append-only audit_logs", func(t *testing.T) {
+		appDSN := replaceDSNUser(t, dsn, "vigia_app", appPass)
+		appPool, err := NewPool(ctx, appDSN, PoolOptions{MaxConns: 4, StatementTimeout: 5 * time.Second})
+		if err != nil {
+			t.Fatalf("connect as vigia_app: %v", err)
+		}
+		defer appPool.Close()
+
+		const (
+			userA  = "10000000-0000-4000-8000-000000000001"
+			userB  = "10000000-0000-4000-8000-000000000002"
+			orgA   = "20000000-0000-4000-8000-000000000001"
+			orgB   = "20000000-0000-4000-8000-000000000002"
+			memA   = "30000000-0000-4000-8000-000000000001"
+			memB   = "30000000-0000-4000-8000-000000000002"
+			teamA  = "40000000-0000-4000-8000-000000000001"
+			teamB  = "40000000-0000-4000-8000-000000000002"
+			auditA = "50000000-0000-4000-8000-000000000001"
+			auditB = "50000000-0000-4000-8000-000000000002"
+			auditG = "50000000-0000-4000-8000-000000000003"
+		)
+
+		// Seed two users (global table).
+		if _, err := appPool.Exec(ctx, `
+			INSERT INTO users (id, email, name, password_hash)
+			VALUES ($1, 'alice@example.com', 'Alice', 'hash-a'),
+			       ($2, 'bob@example.com', 'Bob', 'hash-b')
+		`, userA, userB); err != nil {
+			t.Fatalf("seed users: %v", err)
+		}
+
+		// Seed Org A inside tenant A tx.
+		if err := WithTx(ctx, appPool, func(tx pgx.Tx) error {
+			if _, err := tx.Exec(ctx, "SELECT set_config('app.organization_id', $1, true)", orgA); err != nil {
+				return err
+			}
+			if _, err := tx.Exec(ctx, "INSERT INTO organizations (id, name, slug) VALUES ($1, 'Org A', 'org-a')", orgA); err != nil {
+				return err
+			}
+			if _, err := tx.Exec(ctx, "INSERT INTO memberships (id, organization_id, user_id, role) VALUES ($1, $2, $3, 'owner')", memA, orgA, userA); err != nil {
+				return err
+			}
+			if _, err := tx.Exec(ctx, "INSERT INTO teams (id, organization_id, name, slug) VALUES ($1, $2, 'Core A', 'core-a')", teamA, orgA); err != nil {
+				return err
+			}
+			if _, err := tx.Exec(ctx, "INSERT INTO team_members (organization_id, team_id, user_id) VALUES ($1, $2, $3)", orgA, teamA, userA); err != nil {
+				return err
+			}
+			if _, err := tx.Exec(ctx, "INSERT INTO audit_logs (id, organization_id, actor_type, actor_id, action, resource_type, result, request_id) VALUES ($1, $2, 'user', $3, 'org.created', 'organization', 'success', 'req_a')", auditA, orgA, userA); err != nil {
+				return err
+			}
+			return nil
+		}); err != nil {
+			t.Fatalf("seed Org A: %v", err)
+		}
+
+		// Seed Org B inside tenant B tx + one global auth audit log (organization_id IS NULL).
+		if err := WithTx(ctx, appPool, func(tx pgx.Tx) error {
+			if _, err := tx.Exec(ctx, "SELECT set_config('app.organization_id', $1, true)", orgB); err != nil {
+				return err
+			}
+			if _, err := tx.Exec(ctx, "INSERT INTO organizations (id, name, slug) VALUES ($1, 'Org B', 'org-b')", orgB); err != nil {
+				return err
+			}
+			if _, err := tx.Exec(ctx, "INSERT INTO memberships (id, organization_id, user_id, role) VALUES ($1, $2, $3, 'owner')", memB, orgB, userB); err != nil {
+				return err
+			}
+			if _, err := tx.Exec(ctx, "INSERT INTO teams (id, organization_id, name, slug) VALUES ($1, $2, 'Core B', 'core-b')", teamB, orgB); err != nil {
+				return err
+			}
+			if _, err := tx.Exec(ctx, "INSERT INTO audit_logs (id, organization_id, actor_type, actor_id, action, resource_type, result, request_id) VALUES ($1, $2, 'user', $3, 'org.created', 'organization', 'success', 'req_b')", auditB, orgB, userB); err != nil {
+				return err
+			}
+			if _, err := tx.Exec(ctx, "INSERT INTO audit_logs (id, organization_id, actor_type, actor_id, action, resource_type, result, request_id) VALUES ($1, NULL, 'user', $2, 'auth.login', 'session', 'success', 'req_g')", auditG, userB); err != nil {
+				return err
+			}
+			return nil
+		}); err != nil {
+			t.Fatalf("seed Org B: %v", err)
+		}
+
+		// Fail-closed: without app.organization_id, SELECT must return 0 rows on all tenant-scoped tables.
+		for _, tbl := range []string{"organizations", "memberships", "invitations", "teams", "team_members", "audit_logs"} {
+			var n int
+			if err := appPool.QueryRow(ctx, "SELECT count(*) FROM "+tbl).Scan(&n); err != nil {
+				t.Fatalf("fail-closed SELECT on %s: %v", tbl, err)
+			}
+			if n != 0 {
+				t.Fatalf("fail-closed violation on %s: got %d rows without app.organization_id, want 0", tbl, n)
+			}
+		}
+
+		// Tenant A context sees ONLY Org A and cannot write Org B.
+		if err := WithTx(ctx, appPool, func(tx pgx.Tx) error {
+			if _, err := tx.Exec(ctx, "SELECT set_config('app.organization_id', $1, true)", orgA); err != nil {
+				return err
+			}
+			var orgCount, teamCount, auditCount int
+			if err := tx.QueryRow(ctx, "SELECT count(*) FROM organizations").Scan(&orgCount); err != nil {
+				return err
+			}
+			if err := tx.QueryRow(ctx, "SELECT count(*) FROM teams").Scan(&teamCount); err != nil {
+				return err
+			}
+			if err := tx.QueryRow(ctx, "SELECT count(*) FROM audit_logs").Scan(&auditCount); err != nil {
+				return err
+			}
+			if orgCount != 1 || teamCount != 1 || auditCount != 1 {
+				t.Fatalf("tenant A counts = (orgs:%d teams:%d audits:%d), want (1, 1, 1)", orgCount, teamCount, auditCount)
+			}
+			return nil
+		}); err != nil {
+			t.Fatalf("tenant A read verification tx: %v", err)
+		}
+
+		// Cross-tenant INSERT into Org B from Tenant A context must be blocked by RLS WITH CHECK (SQLSTATE 42501).
+		err = WithTx(ctx, appPool, func(tx pgx.Tx) error {
+			if _, err := tx.Exec(ctx, "SELECT set_config('app.organization_id', $1, true)", orgA); err != nil {
+				return err
+			}
+			_, err := tx.Exec(ctx, "INSERT INTO teams (id, organization_id, name, slug) VALUES ('40000000-0000-4000-8000-000000000099', $1, 'Evil', 'evil')", orgB)
+			return err
+		})
+		var rlsErr *pgconn.PgError
+		if !errors.As(err, &rlsErr) || rlsErr.Code != "42501" {
+			t.Fatalf("expected SQLSTATE 42501 for cross-tenant INSERT into Org B, got: %v", err)
+		}
+
+		// audit_logs must reject UPDATE and DELETE with SQLSTATE 42501 (insufficient_privilege).
+		for _, stmt := range []string{
+			"UPDATE audit_logs SET action = 'tampered' WHERE id = $1",
+			"DELETE FROM audit_logs WHERE id = $1",
+		} {
+			_, err := appPool.Exec(ctx, stmt, auditA)
+			var pgErr *pgconn.PgError
+			if !errors.As(err, &pgErr) || pgErr.Code != "42501" {
+				t.Fatalf("expected SQLSTATE 42501 for %q, got: %v", stmt, err)
 			}
 		}
 	})
