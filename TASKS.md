@@ -238,7 +238,7 @@
 - [x] `.golangci.yml`: `gosec`, `errcheck`, `bodyclose`, `noctx`, `errorlint`, `rowserrcheck`, `sqlclosecheck`, `forbidigo` (`http.Get`/`http.DefaultClient`/`fmt.Print` proibidos fora do CLI), `goimports`
 - [x] Fronteiras (§4.5): `depguard` impede `internal/platform` de importar `internal/modules` e proíbe `math/rand`, `log`, `io/ioutil`, `github.com/pkg/errors`. Entre módulos, a regra é estrutural: o código privado de cada módulo vive em `internal/modules/<x>/internal/` e o compilador do Go impede outros módulos de o importar
 - [x] Dependabot (`gomod`, `github-actions`, `docker`) com `cooldown` de 7 dias (§11.6)
-- [ ] **Branch protection** em `staging` e `main`: 4 jobs (`lint`, `test`, `security`, `docker`) obrigatórios, bloquear force-push e eliminação; **não** activar "Require a pull request" (o fluxo é por fast-forward de commits já verdes em `development`, e o GitHub aceita o push porque o mesmo SHA já tem os checks) — *acção manual 👔 no GitHub*
+- [ ] **Branch protection** em `staging` e `main`: 5 jobs (`lint`, `test`, `integration`, `security`, `docker`) obrigatórios, bloquear force-push e eliminação; **não** activar "Require a pull request" (o fluxo é por fast-forward de commits já verdes em `development`, e o GitHub aceita o push porque o mesmo SHA já tem os checks) — *acção manual 👔 no GitHub*
 - [ ] `sqlc diff` e `oapi-codegen` sem diferenças no CI (quando houver código gerado; ver 1.1)
 
 ### 1.1 Fundação da plataforma (`platform/` + CLI)
@@ -251,7 +251,7 @@
 - [x] `internal/platform/clock`: relógio injectável (`System`/`Fake`) para testes determinísticos (§15.5)
 - [x] `internal/platform/database`: pool `pgx`, `WithTx` e `Ping` (§5.1)
   - [x] Pool configurável por env (`DATABASE_MAX_CONNS`) e `statement_timeout` por defeito na ligação (§13.9)
-  - [ ] Teste de integração com `testcontainers-go` (Timescale) para `NewPool`, `WithTx` e migrations up/down (`//go:build integration` + job no CI)
+  - [x] Teste de integração com `testcontainers-go` (Timescale) para `NewPool`, `WithTx` e migrations up/down (`//go:build integration` + job no CI)
 - [x] `internal/platform/queue`: cliente Redis com password via `REDIS_PASSWORD_FILE` + `Ping` (§5.1)
 - [x] `migrations/` + `vigia migrate <up|down|status|version>` com `goose` embutido (§5.1, §26.5)
 - [x] `internal/platform/httpserver`: `chi`, `X-Request-Id`, logging JSON, recovery, CORS, security headers, envelope de erro (§9.1), `GET /health/ready` (§9.3)

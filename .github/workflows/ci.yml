@@ -61,6 +61,20 @@ jobs:
       - name: cobertura
         run: go tool cover -func=coverage.out | tail -1
 
+  integration:
+    name: integration (testcontainers, -race)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: go test -race -tags=integration
+        run: go test -race -count=1 -tags=integration -v ./internal/platform/database/...
+
   security:
     name: security (govulncheck, gitleaks)
     runs-on: ubuntu-latest
