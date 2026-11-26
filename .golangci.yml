@@ -28,7 +28,7 @@ linters:
           files:
             - "**/internal/platform/**"
           deny:
-            - pkg: github.com/CipherPath/vigia/internal/modules
+            - pkg: github.com/Yhanko/vigia/internal/modules
               desc: "internal/platform não pode importar módulos de domínio (README §4.5)"
         # Bibliotecas substituídas pela stdlib ou por alternativas seguras.
         banned-packages:
@@ -70,4 +70,4 @@ formatters:
   settings:
     goimports:
       local-prefixes:
-        - github.com/CipherPath/vigia
+        - github.com/Yhanko/vigia

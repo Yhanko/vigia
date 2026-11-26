@@ -63,7 +63,7 @@ ARG COMMIT=none
 
 LABEL org.opencontainers.image.title="vigia" \
       org.opencontainers.image.description="Vigia: monitorização, alertas, auditoria e error tracking" \
-      org.opencontainers.image.source="https://github.com/CipherPath/vigia" \
+      org.opencontainers.image.source="https://github.com/Yhanko/vigia" \
       org.opencontainers.image.version="${VERSION}" \
       org.opencontainers.image.revision="${COMMIT}" \
       org.opencontainers.image.licenses="UNLICENSED"
