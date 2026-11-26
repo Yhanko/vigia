@@ -31,7 +31,7 @@
 
 ### 3. Volume esperado de ingestão no MVP (primeiros 6 meses)
 **Que volume realista devemos usar para dimensionar o servidor inicial?**
-- **A) (Recomendado)** Até **50 organizações**, **1–5 milhões de eventos de erro/mês** (~50 eventos/s sustentados, rajadas até 250/s) — cabe num VPS modesto (4 vCPU, 8–16 GB RAM)
+- **A) (Recomendado)** Até **50 organizações**, **1–5 milhões de eventos de erro/mês** (~2 eventos/s médios sustentados a partir das quotas da pergunta 4, picos diurnos de 10–20/s, rajadas até **250 eventos/s**, ~35–40 GB em disco comprimido com 30 dias de retenção) — cabe num VPS modesto (4 vCPU, 8–16 GB RAM, 160–250 GB NVMe)
 - **B)** Piloto fechado pequeno (≤ 10 organizações, < 500 mil eventos/mês)
 - **C)** Escala elevada desde o dia 1 (> 50 milhões de eventos/mês — exige investimento maior em infra)
 
@@ -100,7 +100,8 @@
 
 ### 10. Política de export/delete e residência de dados
 **Como tratar pedidos de eliminação e localização dos dados no MVP?**
-- **A) (Recomendado)** Suportar eliminação de issues/projectos/organizações (soft delete com 14 dias de graça + purge definitivo; eliminação imediata sob pedido legal) e export JSON na Fase 8; residência de dados numa única região (Europa ou África do Sul, conforme menor latência para Angola) no MVP, com multi-região apenas em enterprise futuro
+- **A) (Recomendado)** Suportar eliminação de issues/projectos/organizações (soft delete com 14 dias de graça + purge definitivo; eliminação imediata sob pedido legal) e export JSON na Fase 8; residência de dados numa única região (Europa ou África do Sul, conforme menor latência para Angola) no MVP, com multi-região apenas em enterprise futuro.
+  > **⚠ Nota legal (Lei n.º 22/11):** a transferência internacional de dados pessoais para fora de Angola pode exigir **autorização prévia da Agência de Protecção de Dados (APD)**. Confirmar com jurista antes do go-live (Fase 2.9).
 - **B)** Exigência de alojamento físico em território angolano desde o MVP
 
 - **Decisão do CEO:** *(por preencher)*

@@ -50,13 +50,13 @@ Algoritmo: *sliding window* ou *token bucket* em Redis com headers `RateLimit-Li
 
 | Grupo de endpoints | Chave de contagem | Limite padrão | Lockout / Acção adicional |
 |---|---|---|---|
-| `POST /api/v1/auth/login` | Por IP **e** por email normalizado | **10 req / 15 min** por IP; **5 falhas / 15 min** por conta | Aplicado **antes** do Argon2id (ADR-005); backoff progressivo após 5 falhas (1 min → 5 min → 15 min) |
+| `POST /api/v1/auth/login` | Por **(conta + IP)** e por IP isolado | **10 req / 15 min** por IP; **5 falhas / 15 min** por **(conta + IP)** | Aplicado **antes** do Argon2id (ADR-005). Lockout/backoff rígido apenas por **(conta + IP)** (impede atacante de trancar a conta da vítima); por conta isolada, apenas atraso progressivo (sem bloqueio rígido) + **aviso por email ao utilizador após 5 falhas** |
 | `POST /api/v1/auth/register` | Por IP | **5 req / hora** por IP | — |
 | `POST /api/v1/auth/password/forgot\|reset` | Por IP **e** por email | **3 req / 15 min** por email; **10 req / 15 min** por IP | Resposta sempre genérica (anti-enumeração) |
 | `POST /api/v1/auth/mfa/verify` | Por sessão **e** por IP | **5 tentativas / 15 min** | Invalida desafio MFA após 5 falhas |
 | Product API autenticada (`/api/v1/*`) | Por utilizador / `vg_cli_` token | **120 req / min** (burst 240) | `429` + `Retry-After` |
-| Ingestão Sentry (`/api/{id}/envelope\|store`) | Por chave `dsn` **e** por organização | **100 eventos / min** (Free), **1 000 / min** (Pro), **5 000 / min** (Business) | `429` + `Retry-After` + `X-Sentry-Rate-Limits` |
-| Ingestão de telemetria (`/api/v1/ingest/*`, Fase 3) | Por `vg_ing_` key, por org e por IP | Conforme quota do plano (default **600 req / min** por org) | `429` / `503` + `Retry-After` |
+| Ingestão Sentry (`/api/{id}/envelope\|store`) | Por chave `dsn` **e** por organização | **100 eventos / min** (Free), **1 000 / min** (Pro), **5 000 / min** (Business) *(valores por plano provisórios até à resposta do CEO à pergunta 4)* | `429` + `Retry-After` + `X-Sentry-Rate-Limits` |
+| Ingestão de telemetria (`/api/v1/ingest/*`, Fase 3) | Por `vg_ing_` key, por org e por IP | Conforme quota do plano (default **600 req / min** por org; *provisório até à resposta do CEO à pergunta 4*) | `429` / `503` + `Retry-After` |
 | Webhooks de entrada (Telegram / WhatsApp) | Por IP | **120 req / min** por IP | `429` + registo de abuso |
 | Notificações de saída (anti-ruído) | Por destino (email/Telegram/WhatsApp) | **10 notificações / hora** por destino (WhatsApp: também quota mensal da org) | Suprime excedentes com estado `suppressed` + digest |
 
@@ -76,7 +76,7 @@ Algoritmo: *sliding window* ou *token bucket* em Redis com headers `RateLimit-Li
 
 ### 6.1 Issues (Error Tracking — Fase 2)
 - **`unresolved` → `resolved`:** acção manual do utilizador (ou na próxima release, futuro).
-- **`resolved` → `unresolved` (regressão):** **reabre automaticamente** assim que chega um novo evento com o mesmo `fingerprint` cujo `occurred_at` (ou `received_at`) seja posterior a `resolved_at` (ou de uma release diferente da que resolveu). Marca `is_regression = true` e dispara regras do tipo **regressão**.
+- **`resolved` → `unresolved` (regressão):** **reabre automaticamente** assim que chega um novo evento com o mesmo `fingerprint` cujo **`received_at`** (timestamp do servidor — **nunca** `occurred_at`, que vem do cliente e não é confiável) seja posterior a `resolved_at` (ou de uma release diferente da que resolveu). Marca `is_regression = true` e dispara regras do tipo **regressão**.
 - **`ignored`:** **não reabre** automaticamente e **nunca dispara notificações** até ser manualmente alterado para `unresolved` (ou expirar uma condição de ignore futura).
 
 ### 6.2 Incidentes (Alertas de métricas e uptime — Fase 4)
