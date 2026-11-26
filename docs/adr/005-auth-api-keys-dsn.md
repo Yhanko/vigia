@@ -1,9 +1,9 @@
 # ADR-005: Autenticação (sessões, cookies, CSRF) e formato/hash das API keys e DSN key
 
-- **Estado:** Proposto (em segunda revisão do CTO)
+- **Estado:** Aceite
 - **Data:** 2026-11-26
 - **Responsável:** Desenvolvedor (Gemini)
-- **Revisão CTO:** Em revisão (correcções aplicadas em 2026-11-26)
+- **Revisão CTO:** Aprovado (2026-11-26)
 - **Fase bloqueada:** Antes da 1.2 (e base para 1.3 e 2.1)
 - **Referências:** README §10.1–10.5, §11.4, §19.0, §24.1; ADR-008, ADR-015; TASKS 1.2, 1.3, 2.1
 

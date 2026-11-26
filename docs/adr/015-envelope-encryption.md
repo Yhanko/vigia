@@ -1,9 +1,9 @@
 # ADR-015: Gestão de chaves de encriptação (Envelope Encryption, KEK/DEK, rotação e AAD)
 
-- **Estado:** Proposto (aguarda revisão do CTO)
+- **Estado:** Aceite
 - **Data:** 2026-11-26
 - **Responsável:** Desenvolvedor (Gemini)
-- **Revisão CTO:** Pendente
+- **Revisão CTO:** Aprovado (2026-11-26)
 - **Fase bloqueada:** Antes da 1.2 (antecipado da Fase 2 por decisão do CTO em 2026-11-26)
 - **Referências:** README §10.1, §10.3, §11.4, §24.1; ADR-005, ADR-008; TASKS 0.2, 1.2, 2.7
 
