@@ -14,7 +14,7 @@ Todas as respostas de erro sob `/api/v1/*` usam exclusivamente este envelope JSO
 ```json
 {
   "error": {
-    "code": "VALIDATION_ERROR",
+    "code": "VALIDATION_FAILED",
     "message": "One or more fields are invalid.",
     "requestId": "req_019a2f7d8b4c9e1023456789",
     "details": [
@@ -49,11 +49,11 @@ Todas as respostas de erro sob `/api/v1/*` usam exclusivamente este envelope JSO
 | `CSRF_INVALID` | `403` | `Origin` ou `X-CSRF-Token` em falta ou inválido em pedido mutável por cookie |
 | `PROTECTED_RESOURCE` | `403` | Tentativa de eliminar/alterar ambiente com `is_protected = true` ou último `owner` |
 
-### 2.3 Validação, Parsing e Recursos (`400`, `404`, `405`, `409`, `413`, `415`, `422`)
+### 2.3 Validação, Parsing e Recursos (`400`, `404`, `405`, `409`, `413`, `415`)
 | Código (`error.code`) | HTTP | Quando usar |
 |---|---|---|
-| `INVALID_JSON` | `400` | Corpo JSON malformado, múltiplos objectos JSON ou campos desconhecidos (`DisallowUnknownFields`) |
-| `VALIDATION_ERROR` | `422` | Falha de validação de domínio/schema; `details[]` lista os campos inválidos |
+| `INVALID_JSON` | `400` | Corpo JSON malformado, vazio ou com vários objectos/dados à cauda (`httpserver.DecodeJSON`) |
+| `VALIDATION_FAILED` | `400` | Validação de pedido: tipo de campo inválido, campo desconhecido (`DisallowUnknownFields`) ou falha de validação de domínio; `details[]` lista os campos quando aplicável (sem ecoar nomes de campos desconhecidos) |
 | `INVALID_CURSOR` | `400` | Cursor de paginação inválido ou adulterado |
 | `INVALID_TIME_RANGE` | `400` | Intervalo temporal inválido ou acima de `QUERY_MAX_RANGE_DAYS` |
 | `RESOURCE_NOT_FOUND` | `404` | Recurso inexistente **ou pertencente a outro tenant** (nunca devolver `403` cross-tenant — ADR-008) |
