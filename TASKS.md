@@ -8,7 +8,7 @@
 
 **Como o desenvolvedor trabalha com este ficheiro:**
 1. Pegar **sempre a primeira tarefa `[ ]` da fase activa** (ver "Próximos passos"), nunca saltar fases.
-2. Uma tarefa = um branch = um PR pequeno, com testes. Marcar `[~]` ao começar e `[x]` só quando o **Security Gate** e a **DoD** estiverem cumpridos e o CI verde.
+2. Todas as tarefas são feitas na branch **`development`**, em commits pequenos e com testes; só se publica no GitHub depois da aprovação do CTO, e o código segue `development → staging → main` (fluxo no [GEMINI.md](./GEMINI.md) §6). Marcar `[~]` ao começar e `[x]` só quando o **Security Gate** e a **DoD** estiverem cumpridos e o CI verde.
 3. Tarefas marcadas **🧭 CTO** precisam de revisão do CTO antes do merge (segurança, contratos públicos, dinheiro). Tarefas marcadas **👔 CEO** são decisões ou acções do CEO, não de código.
 4. Se uma tarefa estiver ambígua ou em conflito com o README, **parar e perguntar** em vez de adivinhar.
 5. Antes de cada tarefa, reler a secção **"👨‍💻 Padrão de engenharia exigido"** abaixo; antes de cada PR, cumprir a **checklist pré-PR**.
@@ -18,7 +18,7 @@
 
 ## 🚦 Fase activa e porta de fase
 
-> **FASE ACTIVA: 0 — Discovery, Arquitectura e Contratos**
+> **FASE ACTIVA: 1 — Fundação do Backend** *(aberta em 2026-11-26: porta da Fase 0 aprovada pelo CTO e autorizada pelo CEO)*
 > *(só o CTO, com autorização do CEO, muda esta linha)*
 
 **Regras:**
@@ -26,12 +26,12 @@
 2. A fase seguinte só começa quando a **porta de fase** abre:
    - todas as tarefas `[ ]`/`[~]` da fase estão `[x]`, incluindo as de segurança 🔒;
    - o critério de saída da fase (tabela "📊 Estado por fase") foi demonstrado, com comandos e resultados no relatório;
-   - o CI está verde na `main` e não há PRs da fase por fazer merge;
+   - todos os commits da fase foram aprovados pelo CTO e estão em `development`, `staging` e `main`, com o CI verde nas três;
    - o CTO reviu e o CEO autorizou.
 3. **ADRs:** um ADR com *"antes da Fase N"* conta para a porta da fase **N−1** (ex.: ADR-003 *antes da Fase 2* tem de estar aprovado para fechar a Fase 1). Os restantes ADRs não bloqueiam a fase actual.
 4. **Tarefas 👔 do CEO dentro da fase:** o desenvolvedor prepara o documento com as perguntas e opções; a porta só abre quando o CEO responder.
 5. **Ritmo:** uma sessão de trabalho por dia na fase activa. Não há prazo de "uma fase por dia": as fases têm tamanhos muito diferentes (a Fase 2 é o produto inteiro). Se a fase não terminar, continua no dia seguinte. Qualidade e segurança antes de velocidade.
-6. **Trabalho já feito fora de ordem:** as tarefas 1.0 e 1.1 marcadas `[x]` foram feitas pelo CTO antes desta regra existir; mantêm-se, e o que falta delas é feito quando a Fase 1 for a fase activa.
+6. **Trabalho já feito fora de ordem:** as tarefas 1.0 e 1.1 marcadas `[x]` foram feitas pelo CTO antes desta regra existir; mantêm-se, e o que falta delas é feito agora, na Fase 1.
 
 **Porta da Fase 0 — o que tem de estar `[x]` para abrir a Fase 1:**
 - 0.2: template, ADR-001, ADR-002, ADR-005, ADR-008, ADR-013, ADR-014, ADR-015 (os que dizem *antes da Fase 1* ou *antes da 1.2*);
@@ -118,8 +118,8 @@
 
 | Fase | Tema | Estado | Critério de saída |
 |---|---|---|---|
-| 0 | Discovery, arquitectura e contratos | `[~]` **← fase activa** | Scope aprovado, ADRs da fase seguinte escritos, riscos listados |
-| 1 | Fundação do backend (auth, orgs, projectos, credenciais, CI) | `[~]` (1.0 e 1.1 quase completas) | Auth + isolamento de tenant em E2E; pipeline verde; backup/restore testado |
+| 0 | Discovery, arquitectura e contratos | `[x]` (porta aprovada em 2026-11-26) | Scope aprovado, ADRs da fase seguinte escritos, riscos listados |
+| 1 | Fundação do backend (auth, orgs, projectos, credenciais, CI) | `[~]` **← fase activa** (1.0 e 1.1 quase completas) | Auth + isolamento de tenant em E2E; pipeline verde; backup/restore testado |
 | **2** | **MVP: Error tracking compatível Sentry + alertas + email/Telegram/WhatsApp + UI mínima + go-live** | `[ ]` | SDKs Sentry de ≥ 5 plataformas enviam erros só com troca de DSN; alerta → notificação nos 3 canais com falhas simuladas; go-live mínimo aprovado |
 | 3 | Métricas e ingestão de telemetria | `[ ]` | Load test base aprovado; sobrecarga documentada; retenção validada |
 | 4 | Alertas de métricas, incidentes e tempo real (SSE) | `[ ]` | E2E ingest → alerta → incidente → notificação |
@@ -142,13 +142,13 @@
 3. **Legal:** termos de serviço, política de privacidade e enquadramento na lei angolana de protecção de dados (Lei n.º 22/11) antes do go-live (2.9).
 4. Responder às perguntas da §24.2 (público inicial, SaaS vs self-hosted, retenção default, volume esperado).
 
-**Desenvolvedor (Gemini) — Fase 0 (activa):**
-1. Template de ADR e ADR-001, 002, 013, 014 (decisões já tomadas: formalizar) 🧭.
-2. ADR-005 (autenticação, API keys e DSN key), ADR-008 (isolamento de tenant) e ADR-015 (envelope encryption) 🧭.
-3. Tarefas 0.3 pela ordem da lista: threat model, classificação de dados, SLOs, documento de perguntas da §24.2 para o CEO 👔, valores da §25.3, catálogo de erros, requisitos, fluxos, convenções Go, diagramas.
-4. Relatório da porta da Fase 0 para revisão do CTO.
+**Desenvolvedor (Gemini) — Fase 1 (activa), sempre na branch `development`:**
+1. O que falta da 1.1, pela ordem da lista (`ADMIN_PORT`, pool da BD, testes de integração com `testcontainers-go`, `oapi-codegen`, lint da spec).
+2. 1.2 → 1.3 → 1.4, pela ordem; o `internal/platform/crypto` (ADR-015) é a primeira tarefa da 1.2.
+3. Em paralelo, só documentos: os ADRs que contam para a porta da Fase 1 (003, 004, 009, 017) 🧭.
+4. Relatório no fim de cada sessão, com os commits por rever; nada é publicado sem aprovação do CTO.
 
-**Quando a Fase 1 for a activa:** push e CI verde no GitHub + branch protection; o que falta da 1.1; ADRs que contam para a porta da Fase 1 (003, 004, 009, 017); depois 1.2 → 1.4.
+**👔 CEO, no GitHub:** branch protection em `staging` e `main` (4 jobs do CI obrigatórios, sem push directo excepto o fast-forward aprovado).
 
 ---
 
@@ -238,7 +238,7 @@
 - [x] `.golangci.yml`: `gosec`, `errcheck`, `bodyclose`, `noctx`, `errorlint`, `rowserrcheck`, `sqlclosecheck`, `forbidigo` (`http.Get`/`http.DefaultClient`/`fmt.Print` proibidos fora do CLI), `goimports`
 - [x] Fronteiras (§4.5): `depguard` impede `internal/platform` de importar `internal/modules` e proíbe `math/rand`, `log`, `io/ioutil`, `github.com/pkg/errors`. Entre módulos, a regra é estrutural: o código privado de cada módulo vive em `internal/modules/<x>/internal/` e o compilador do Go impede outros módulos de o importar
 - [x] Dependabot (`gomod`, `github-actions`, `docker`) com `cooldown` de 7 dias (§11.6)
-- [ ] **Branch protection** na `main` com os 4 jobs (`lint`, `test`, `security`, `docker`) obrigatórios — *acção manual no GitHub*
+- [ ] **Branch protection** em `staging` e `main`: 4 jobs (`lint`, `test`, `security`, `docker`) obrigatórios, bloquear force-push e eliminação; **não** activar "Require a pull request" (o fluxo é por fast-forward de commits já verdes em `development`, e o GitHub aceita o push porque o mesmo SHA já tem os checks) — *acção manual 👔 no GitHub*
 - [ ] `sqlc diff` e `oapi-codegen` sem diferenças no CI (quando houver código gerado; ver 1.1)
 
 ### 1.1 Fundação da plataforma (`platform/` + CLI)

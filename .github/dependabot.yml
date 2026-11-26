@@ -1,9 +1,12 @@
 # Actualizações de dependências revistas em PR (README §11.6).
 # cooldown: aguardar alguns dias antes de adoptar versões recém-publicadas.
+# target-branch: os PRs entram em development e seguem o fluxo normal
+# (development → staging → main) depois da revisão do CTO.
 version: 2
 updates:
   - package-ecosystem: gomod
     directory: /
+    target-branch: development
     schedule:
       interval: weekly
     cooldown:
@@ -14,6 +17,7 @@ updates:
 
   - package-ecosystem: github-actions
     directory: /
+    target-branch: development
     schedule:
       interval: weekly
     cooldown:
@@ -21,6 +25,7 @@ updates:
 
   - package-ecosystem: docker
     directory: /
+    target-branch: development
     schedule:
       interval: weekly
     cooldown:

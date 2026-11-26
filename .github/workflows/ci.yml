@@ -1,12 +1,14 @@
 # CI mínimo do backend (README §16.1, TASKS 1.0).
-# Cada job é um check obrigatório para merge na main (configurar em
-# Settings → Branches → Branch protection rules).
+# Fluxo de branches: development → staging → main (ver GEMINI.md §3).
+# Corre em cada push para as três branches e em cada pull request; cada job é
+# um check obrigatório para merge em staging e main (Settings → Branches →
+# Branch protection rules).
 name: ci
 
 on:
   pull_request:
   push:
-    branches: [main]
+    branches: [development, staging, main]
 
 permissions:
   contents: read
