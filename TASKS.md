@@ -34,7 +34,7 @@
 6. **Trabalho já feito fora de ordem:** as tarefas 1.0 e 1.1 marcadas `[x]` foram feitas pelo CTO antes desta regra existir; mantêm-se, e o que falta delas é feito quando a Fase 1 for a fase activa.
 
 **Porta da Fase 0 — o que tem de estar `[x]` para abrir a Fase 1:**
-- 0.2: template, ADR-001, ADR-002, ADR-005, ADR-008, ADR-013, ADR-014 (os que dizem *antes da Fase 1* ou *antes da 1.2*);
+- 0.2: template, ADR-001, ADR-002, ADR-005, ADR-008, ADR-013, ADR-014, ADR-015 (os que dizem *antes da Fase 1* ou *antes da 1.2*);
 - 0.3: todas as tarefas (a das perguntas da §24.2 depende de respostas do CEO 👔).
 
 ---
@@ -142,11 +142,11 @@
 
 **Desenvolvedor (Gemini) — Fase 0 (activa):**
 1. Template de ADR e ADR-001, 002, 013, 014 (decisões já tomadas: formalizar) 🧭.
-2. ADR-005 (autenticação, API keys e DSN key) e ADR-008 (isolamento de tenant) 🧭.
+2. ADR-005 (autenticação, API keys e DSN key), ADR-008 (isolamento de tenant) e ADR-015 (envelope encryption) 🧭.
 3. Tarefas 0.3 pela ordem da lista: threat model, classificação de dados, SLOs, documento de perguntas da §24.2 para o CEO 👔, valores da §25.3, catálogo de erros, requisitos, fluxos, convenções Go, diagramas.
 4. Relatório da porta da Fase 0 para revisão do CTO.
 
-**Quando a Fase 1 for a activa:** push e CI verde no GitHub + branch protection; o que falta da 1.1; ADRs que contam para a porta da Fase 1 (003, 004, 009, 015, 017); depois 1.2 → 1.4.
+**Quando a Fase 1 for a activa:** push e CI verde no GitHub + branch protection; o que falta da 1.1; ADRs que contam para a porta da Fase 1 (003, 004, 009, 017); depois 1.2 → 1.4.
 
 ---
 
@@ -201,7 +201,7 @@
 - [ ] ADR-012: Segurança dos collectors pull (BD e endpoints) — *antes da Fase 6*
 - [~] ADR-013: Go como linguagem do backend — *já decidido; formalizado em `docs/fase0-adrs-base`, aguarda revisão do CTO 🧭*
 - [~] ADR-014: Acesso a dados (`sqlc` + `pgx` vs ORM) — *já decidido; formalizado em `docs/fase0-adrs-base`, aguarda revisão do CTO 🧭*
-- [ ] ADR-015: Gestão de chaves de encriptação (envelope encryption, KEK/DEK, rotação) — *antes da Fase 2* (telefones, chat IDs e tokens de canais são encriptados)
+- [ ] ADR-015: Gestão de chaves de encriptação (envelope encryption, KEK/DEK, rotação) — *antes da 1.2* (antecipado por decisão do CTO em 2026-11-26: segredos TOTP na 1.2; depois telefones, chat IDs e tokens de canais)
 - [ ] ADR-016: Armazenamento de "events" genéricos (`/ingest/events`) — *antes da Fase 3*
 - [ ] **ADR-017: Compatibilidade com o protocolo de ingestão dos SDKs Sentry** — *antes da Fase 2*. Tem de fixar:
   - versão do protocolo (`sentry_version=7`), endpoints (`/api/<project_id>/envelope/` e `/store/`) e formatos de autenticação (`X-Sentry-Auth`, query `sentry_key`);
@@ -280,6 +280,7 @@
   - [x] Healthcheck do CLI com `context` e timeout (sem `client.Get` sem contexto)
 
 ### 1.2 Identity, Organizations, RBAC e Audit
+- [ ] `internal/platform/crypto`: envelope encryption AES-256-GCM (DEK por registo, KEK de `ENCRYPTION_KEY_FILE`, `key_id` para rotação) conforme ADR-015 *(antecipado da 2.0 por decisão do CTO em 2026-11-26 para encriptar segredos TOTP)* 🧭
 - [ ] Migration: `users`, `sessions`, `organizations`, `memberships`, `invitations`, `teams`, `team_members`, `audit_logs` (§8.2) com índices a começar pelo tenant e `UNIQUE` da §8.6
 - [ ] Padrão de repositório tenant-scoped (tipo `TenantID` obrigatório nas assinaturas) (§11.1)
 - [ ] `identity`: `POST /auth/register|login|logout|refresh`, sessões revogáveis, Argon2id, cookies `HttpOnly`/`Secure`/`SameSite` (§9.2, §10.3)
@@ -338,7 +339,6 @@
 - [ ] Fila durável (Asynq ou River, conforme ADR-004) + subcomando `vigia worker` com graceful shutdown, concorrência limitada e filas/limites **por tenant** (§4.4, §13.6)
 - [ ] Subcomando `vigia scheduler` (jobs periódicos: detecção de picos, digests, retenção) com lock distribuído (§4.4)
 - [ ] `internal/platform/redaction`: regras partilhadas de scrubbing (lista da §2.3) e lista de dados proibidos (§11.4, §17.3) + testes
-- [ ] `internal/platform/crypto`: envelope encryption AES-256-GCM (DEK por registo, KEK de `ENCRYPTION_KEY_FILE`, `key_id` para rotação) conforme ADR-015 🧭
 - [ ] `quotas` (mínimo do MVP): eventos de erro/dia por organização, mensagens WhatsApp/mês por organização, projectos e membros; contadores em Redis + `usage_aggregates`; `GET /organizations/:id/usage` e `/quotas` (§17.1, §9.2)
 - [ ] Serviços `worker` e `scheduler` no `compose.yaml`
 
