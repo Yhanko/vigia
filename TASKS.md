@@ -282,7 +282,7 @@
   - [x] Healthcheck do CLI com `context` e timeout (sem `client.Get` sem contexto)
 
 ### 1.2 Identity, Organizations, RBAC e Audit
-- [ ] `internal/platform/crypto`: envelope encryption AES-256-GCM (DEK por registo, KEK de `ENCRYPTION_KEY_FILE`, `key_id` para rotação) conforme ADR-015 *(antecipado da 2.0 por decisão do CTO em 2026-11-26 para encriptar segredos TOTP)* 🧭
+- [~] `internal/platform/crypto`: envelope encryption AES-256-GCM (DEK por registo, KEK de `ENCRYPTION_KEY_FILE`, `key_id` para rotação) conforme ADR-015 *(implementado, testado com fuzzing 30s e ligado no arranque; aguarda revisão do CTO 🧭)* 🧭
 - [ ] Migration: `users`, `sessions`, `organizations`, `memberships`, `invitations`, `teams`, `team_members`, `audit_logs` (§8.2) com índices a começar pelo tenant e `UNIQUE` da §8.6
 - [ ] Padrão de repositório tenant-scoped (tipo `TenantID` obrigatório nas assinaturas) (§11.1)
 - [ ] `identity`: `POST /auth/register|login|logout|refresh`, sessões revogáveis, Argon2id, cookies `HttpOnly`/`Secure`/`SameSite` (§9.2, §10.3)

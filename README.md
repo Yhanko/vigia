@@ -1704,7 +1704,7 @@ REDIS_PASSWORD_FILE=/run/secrets/redis_password
 
 SESSION_SECRET_FILE=/run/secrets/session_secret
 API_KEY_PEPPER_FILE=/run/secrets/api_key_pepper
-ENCRYPTION_KEY_FILE=/run/secrets/encryption_key
+ENCRYPTION_KEY_FILE=/run/secrets/encryption_key # keyring "<key_id>:<64-hex>" (ADR-015)
 CORS_ORIGINS=http://127.0.0.1:5173
 
 API_MAX_BODY_BYTES=262144

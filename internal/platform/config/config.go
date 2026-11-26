@@ -296,10 +296,10 @@ func (c Config) validateForEnv() error {
 		return fmt.Errorf("APP_ENV=%s requires: %s", c.AppEnv, strings.Join(missing, ", "))
 	}
 
+	// ENCRYPTION_KEY_FILE format and key length are validated by crypto.ParseKeyring (ADR-015).
 	for name, key := range map[string]Secret{
 		"SESSION_SECRET_FILE": c.SessionSecret,
 		"API_KEY_PEPPER_FILE": c.APIKeyPepper,
-		"ENCRYPTION_KEY_FILE": c.EncryptionKey,
 	} {
 		if len(key.Value()) < MinKeyLength {
 			return fmt.Errorf("%s must contain at least %d characters", name, MinKeyLength)

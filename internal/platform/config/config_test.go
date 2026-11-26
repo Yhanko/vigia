@@ -124,7 +124,7 @@ func stagingEnv(t *testing.T, dir string) map[string]string {
 		"REDIS_ADDR":          "127.0.0.1:6379",
 		"SESSION_SECRET_FILE": writeKey(t, dir, "session.txt", key),
 		"API_KEY_PEPPER_FILE": writeKey(t, dir, "pepper.txt", key),
-		"ENCRYPTION_KEY_FILE": writeKey(t, dir, "enc.txt", key),
+		"ENCRYPTION_KEY_FILE": writeKey(t, dir, "enc.txt", "k1:"+key),
 	}
 }
 

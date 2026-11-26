@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/Yhanko/vigia/internal/platform/config"
+	"github.com/Yhanko/vigia/internal/platform/crypto"
 	"github.com/Yhanko/vigia/internal/platform/database"
 	"github.com/Yhanko/vigia/internal/platform/httpserver"
 	"github.com/Yhanko/vigia/internal/platform/queue"
@@ -87,6 +88,19 @@ func runAPI() error {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
+	if !cfg.EncryptionKey.IsEmpty() {
+		kr, err := crypto.ParseKeyring([]byte(cfg.EncryptionKey.Value()))
+		if err != nil {
+			return fmt.Errorf("load ENCRYPTION_KEY_FILE: %w", err)
+		}
+		if _, err := crypto.NewEnvelopeEncrypter(kr); err != nil {
+			return fmt.Errorf("init envelope encrypter: %w", err)
+		}
+		logger.Info("encryption keyring loaded", "active_key_id", kr.ActiveKeyID())
+	} else {
+		logger.Warn("ENCRYPTION_KEY_FILE not set; running without envelope encryption")
+	}
 
 	var checks []httpserver.ReadinessCheck
 
