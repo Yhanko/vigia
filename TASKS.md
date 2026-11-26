@@ -201,7 +201,7 @@
 - [ ] ADR-012: Segurança dos collectors pull (BD e endpoints) — *antes da Fase 6*
 - [~] ADR-013: Go como linguagem do backend — *já decidido; formalizado em `docs/fase0-adrs-base`, aguarda revisão do CTO 🧭*
 - [~] ADR-014: Acesso a dados (`sqlc` + `pgx` vs ORM) — *já decidido; formalizado em `docs/fase0-adrs-base`, aguarda revisão do CTO 🧭*
-- [ ] ADR-015: Gestão de chaves de encriptação (envelope encryption, KEK/DEK, rotação) — *antes da 1.2* (antecipado por decisão do CTO em 2026-11-26: segredos TOTP na 1.2; depois telefones, chat IDs e tokens de canais)
+- [~] ADR-015: Gestão de chaves de encriptação (envelope encryption, KEK/DEK, rotação) — *antes da 1.2 (antecipado por decisão do CTO em 2026-11-26); escrito em `docs/fase0-adr-015-envelope-encryption`, aguarda revisão do CTO 🧭*
 - [ ] ADR-016: Armazenamento de "events" genéricos (`/ingest/events`) — *antes da Fase 3*
 - [ ] **ADR-017: Compatibilidade com o protocolo de ingestão dos SDKs Sentry** — *antes da Fase 2*. Tem de fixar:
   - versão do protocolo (`sentry_version=7`), endpoints (`/api/<project_id>/envelope/` e `/store/`) e formatos de autenticação (`X-Sentry-Auth`, query `sentry_key`);
@@ -214,16 +214,16 @@
 - [ ] **ADR-019: Fornecedor de email transaccional em produção** (Resend, Postmark, Amazon SES ou SMTP próprio) — *antes de 2.9*
 
 ### 0.3 Segurança, requisitos e convenções
-- [~] Threat model formal em `docs/security/threat-model.md` (activos e ameaças da §11.7, STRIDE por fronteira de confiança) (§11.7) — *escrito em `docs/fase0-threat-model`; aguarda revisão/merge*
-- [ ] Classificação de dados (público / interno / confidencial / segredo) e **lista de dados proibidos** de ingestão (§17.3, §20.1)
-- [ ] SLOs iniciais e metas de capacidade documentados (§14.4, §25.2), incl. **RPO/RTO** por classe de dado (§16.6)
-- [ ] Respostas escritas às 12 perguntas da §24.2 (público-alvo, modelo SaaS/self-hosted, volume, retenção default, alvo de deploy…) — o desenvolvedor prepara `docs/decisions/perguntas-ceo.md` com opções e recomendação; 👔 o CEO responde
-- [ ] Valores concretos da §25.3: política de passwords, duração de sessão, expiração padrão das keys, valores de rate limit, definição de severidades, regras de reabertura (incidente/issue)
-- [ ] **Catálogo de códigos de erro da API** + política de versionamento/depreciação (§25.3, §9.1) em `docs/api/`
-- [ ] Personas, user journeys e lista numerada de requisitos (`RF-001…`) com critério de aceitação (§25.1)
-- [ ] Fluxos completos: convite, recuperação de conta, eliminação de organização/projecto, **transferência de ownership** (§25.1)
-- [ ] Convenções Go escritas (erros com `%w`, `context` em toda a I/O, concorrência limitada, nomes de pacotes, testes table-driven) (§23)
-- [ ] Diagramas de arquitectura e fluxo actualizados em `docs/` (§20.1)
+- [~] Threat model formal em `docs/security/threat-model.md` (activos e ameaças da §11.7, STRIDE por fronteira de confiança) (§11.7) — *escrito em `docs/fase0-threat-model`; aprovado pelo CTO, aguarda merge*
+- [~] Classificação de dados (público / interno / confidencial / segredo) e **lista de dados proibidos** de ingestão (§17.3, §20.1) — *escrito em `docs/security/data-classification.md` (`docs/fase0-03-security-slos-ceo`); aguarda revisão/merge*
+- [~] SLOs iniciais e metas de capacidade documentados (§14.4, §25.2), incl. **RPO/RTO** por classe de dado (§16.6) — *escrito em `docs/architecture/slos-capacity.md` (`docs/fase0-03-security-slos-ceo`); aguarda revisão/merge*
+- [~] Respostas escritas às 12 perguntas da §24.2 (público-alvo, modelo SaaS/self-hosted, volume, retenção default, alvo de deploy…) — *preparado `docs/decisions/perguntas-ceo.md` (`docs/fase0-03-security-slos-ceo`); aguarda respostas do CEO 👔*
+- [~] Valores concretos da §25.3: política de passwords, duração de sessão, expiração padrão das keys, valores de rate limit, definição de severidades, regras de reabertura (incidente/issue) — *escrito em `docs/decisions/business-defaults.md` (`docs/fase0-03-security-slos-ceo`); aguarda revisão/merge*
+- [~] **Catálogo de códigos de erro da API** + política de versionamento/depreciação (§25.3, §9.1) em `docs/api/` — *escrito em `docs/api/error-catalog.md` (`docs/fase0-03-api-product-flows`); aguarda revisão/merge*
+- [~] Personas, user journeys e lista numerada de requisitos (`RF-001…`) com critério de aceitação (§25.1) — *escrito em `docs/product/requirements.md` (`docs/fase0-03-api-product-flows`); aguarda revisão/merge*
+- [~] Fluxos completos: convite, recuperação de conta, eliminação de organização/projecto, **transferência de ownership** (§25.1) — *escrito em `docs/product/critical-flows.md` (`docs/fase0-03-api-product-flows`); aguarda revisão/merge*
+- [~] Convenções Go escritas (erros com `%w`, `context` em toda a I/O, concorrência limitada, nomes de pacotes, testes table-driven) (§23) — *escrito em `docs/engineering/go-conventions.md` (`docs/fase0-03-go-conventions-diagrams`); aguarda revisão/merge*
+- [~] Diagramas de arquitectura e fluxo actualizados em `docs/` (§20.1) — *escrito em `docs/architecture/diagrams.md` (`docs/fase0-03-go-conventions-diagrams`); aguarda revisão/merge*
 
 ---
 
