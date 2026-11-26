@@ -86,10 +86,14 @@ Misturar estas credenciais ou usar sessões não revogáveis (JWT stateless de l
 
 Regras transversais das credenciais:
 1. O middleware valida comprimento e alfabeto hex por posição, deriva `(organization_id, project_id, environment_id, credential_kind, scopes)` da credencial validada e injecta-o no `context.Context`.
-2. **Cache de credenciais e revogação imediata:** o lookup de credencial acontece **antes** de conhecer o tenant, pelo que a chave Redis usa o formato **`cred:<kind>:<prefix>`** (excepção documentada à regra de prefixo `org:<id>:` — registada também no ADR-008). O valor guardado contém `organization_id`, `project_id`, `environment_id`, `secret_hash`/`public_key` e `scopes`, com TTL curto. Ao revogar (`revoked_at = now()` em PostgreSQL), a chave `cred:<kind>:<prefix>` é removida de imediato do Redis.
-3. **Rotação:** permite criar nova credencial com janela de sobreposição opcional e revogação automática da antiga.
-4. **`last_used_at`:** actualizado de forma agrupada/assíncrona (nunca uma escrita síncrona em BD por pedido de ingestão).
-5. **Protecção da `dsn` key:** `projects.public_id` é um inteiro aleatório de 53 bits (`UNIQUE`, nunca sequencial); cada chave `dsn` suporta `allowed_origins`, rate limit próprio e quotas de organização. **O valor completo da `public_key` nunca deve aparecer nos logs** — os logs registam apenas `credential_id` ou `prefix` mascarado.
+2. **Colisão na geração:** na criação de qualquer credencial, uma violação de `UNIQUE` no `prefix` (`ingest`/`client`) ou na `public_key` (`dsn`) gera um novo valor aleatório e tenta novamente, até ao **máximo de 3 tentativas** (falhando explicitamente se exceder).
+3. **Cache de credenciais e revogação imediata:** o lookup de credencial acontece **antes** de conhecer o tenant, pelo que a chave Redis usa:
+   - **`cred:<kind>:<prefix>`** para `ingest` e `client` (onde `(kind, prefix)` é `UNIQUE`);
+   - **`cred:dsn:<public_key>`** (32 hex, `UNIQUE`) para `dsn` — **nunca** o `prefix` de 8 hex, que não é único e poderia colidir entre projectos.
+   Ambas são excepções documentadas à regra de prefixo `org:<id>:` (registadas também no ADR-008). O valor guardado contém `organization_id`, `project_id`, `environment_id`, `secret_hash`/`public_key` e `scopes`, com TTL curto. Ao revogar (`revoked_at = now()` em PostgreSQL), a respectiva chave é removida de imediato do Redis.
+4. **Rotação:** permite criar nova credencial com janela de sobreposição opcional e revogação automática da antiga.
+5. **`last_used_at`:** actualizado de forma agrupada/assíncrona (nunca uma escrita síncrona em BD por pedido de ingestão).
+6. **Protecção da `dsn` key:** `projects.public_id` é um inteiro aleatório de 53 bits (`UNIQUE`, nunca sequencial); cada chave `dsn` suporta `allowed_origins`, rate limit próprio e quotas de organização. **O valor completo da `public_key` nunca deve aparecer nos logs** — os logs registam apenas `credential_id` ou `prefix` mascarado.
 
 ## 4. Consequências
 
@@ -97,7 +101,7 @@ Regras transversais das credenciais:
 - Zero segredos de utilizador ou API keys confidenciais em plaintext na base de dados ou em `localStorage`.
 - Parsing determinístico por posição sem colisão com o separador `_`.
 - Protecção explícita contra exaustão de RAM/CPU em ataques de login concorrente dentro do limite de `256 MiB` do container.
-- Revogação de sessões e credenciais efectiva de imediato (invalidação directa de `cred:<kind>:<prefix>`).
+- Revogação de sessões e credenciais efectiva de imediato (invalidação directa de `cred:<kind>:<prefix>` ou `cred:dsn:<public_key>`).
 - Separação rígida entre chaves públicas de browser (`dsn`) e credenciais de backend (`vg_ing_`, `vg_cli_`).
 
 ### Negativas / Trade-offs aceites
