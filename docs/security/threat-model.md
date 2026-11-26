@@ -86,7 +86,7 @@ flowchart LR
 ### TB-2 — Ingestão (Sentry `/api/{public_id}/envelope|store` e Telemetria `/ingest/*`)
 | Categoria | Ameaça concreta | Controlo obrigatório | Fase |
 |---|---|---|---|
-| **S** (Spoofing) | Uso de chave `dsn` de outro projecto ou chave revogada; spoofing de `occurredAt` | Validar `(public_key, public_id)` em conjunto; parsing por posição; revogação imediata com invalidação Redis (`cred:<kind>:<prefix>`); guardar `received_at` do servidor e rejeitar timestamps absurdos | 2.1 / 2.2 / 3 |
+| **S** (Spoofing) | Uso de chave `dsn` de outro projecto ou chave revogada; spoofing de `occurredAt` | Validar `(public_key, public_id)` em conjunto; parsing por posição; revogação imediata com invalidação Redis (`cred:dsn:<public_key>` para `dsn`, `cred:<kind>:<prefix>` para `ingest`/`client`); guardar `received_at` do servidor e rejeitar timestamps absurdos | 2.1 / 2.2 / 3 |
 | **T** (Tampering) | Envelopes malformados com `length` mentiroso; queue poisoning; injecção de HTML/markup que chega a Telegram/UI | Parser streaming com limites estritos + `go test -fuzz`; escape HTML no Telegram; renderização como texto na UI | 2.2 / 2.7 / 2.8 |
 | **R** (Repudiation) | Cliente ou atacante nega envio de rajadas/eventos ou uso anómalo de chave | Registo estruturado com `event_id`, `received_at`, `credential_id`/`prefix` mascarado (nunca `public_key` completa) e auditoria de uso anómalo de keys (§10.2) | 1.3 / 2.2 |
 | **I** (Info Disclosure) | SDK envia passwords, cookies, cartões ou request bodies (PII) para o Vigia | Descartar `request.data`/cookies por defeito; scrubbing no servidor **antes** de enfileirar (independente de `send_default_pii`) | 2.2 / 2.3 |
