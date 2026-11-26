@@ -41,7 +41,7 @@ Adoptar **isolamento multi-tenant em duas camadas (Aplicação + PostgreSQL RLS)
 3. **Respostas sem enumeração de IDs:** quando um recurso existe noutro tenant, a API responde `404 RESOURCE_NOT_FOUND` (nunca `403`), evitando revelar a existência de IDs de terceiros.
 4. **Isolamento fora da BD:**
    - **Redis (cache, dedup, rate limit, Pub/Sub SSE):** todas as chaves usam prefixo `org:<organization_id>:...`.
-     - **Excepção documentada (ADR-005):** a cache de credenciais usa **`cred:<kind>:<prefix>`**, pois o lookup ocorre antes de se conhecer o tenant; o valor armazenado inclui `organization_id` e é invalidado directamente na revogação.
+     - **Excepções documentadas (ADR-005):** a cache de credenciais usa **`cred:<kind>:<prefix>`** para `ingest`/`client` e **`cred:dsn:<public_key>`** (32 hex, `UNIQUE`) para `dsn`, pois o lookup ocorre antes de se conhecer o tenant; o valor armazenado inclui `organization_id` e é invalidado directamente na revogação.
    - **Filas/Workers:** todo o job carrega `organization_id` no payload e é processado sob `WithTenantTx`; quotas e concorrência aplicadas por tenant.
    - **Object storage (source maps, exports):** prefixo `<organization_id>/<project_id>/...`.
 
@@ -53,8 +53,13 @@ Adoptar **isolamento multi-tenant em duas camadas (Aplicação + PostgreSQL RLS)
      CREATE ROLE vigia_app LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE;
      ```
      - **Credencial própria:** password num Docker secret separado (`postgres_app_password`, montado em `/run/secrets/postgres_app_password` via `DATABASE_PASSWORD_FILE` nos serviços de runtime; `postgres_password` fica restrito ao `db` e ao serviço `migrate`).
-     - **Criação segura:** criado/sincronizado num script de init da BD (`/docker-entrypoint-initdb.d/`) ou no comando `vigia migrate` lendo o secret do ficheiro e aplicando quoting seguro de literais (`format('ALTER ROLE vigia_app WITH PASSWORD %L', $1)` / `pgx.Identifier`, nunca concatenação directa de strings em SQL).
+     - **Criação e sincronização via `vigia migrate`:** `vigia_app` (e `vigia_definer` abaixo) são criados e sincronizados de forma **idempotente** exclusivamente pelo comando `vigia migrate`, lendo `postgres_app_password` do ficheiro de secret e aplicando quoting seguro de literais (`format('ALTER ROLE vigia_app WITH PASSWORD %L', $1)` / `pgx.Identifier`, nunca concatenação directa de strings em SQL). Não se usam scripts em `/docker-entrypoint-initdb.d/`, pois só correm na primeira inicialização de um volume vazio e não funcionam em BDs já existentes.
      - **Privilégios mínimos:** `SELECT`, `INSERT`, `UPDATE`, `DELETE` nas tabelas de domínio; apenas `SELECT` e `INSERT` em tabelas append-only (`audit_logs`, `incident_events`); `EXECUTE` apenas nas funções `SECURITY DEFINER` listadas em §3.3.
+   - `vigia_definer`: role dedicado, sem login e sem privilégios de superuser, owner exclusivo das funções `SECURITY DEFINER` de §3.3:
+     ```sql
+     CREATE ROLE vigia_definer NOLOGIN NOSUPERUSER BYPASSRLS NOCREATEDB NOCREATEROLE;
+     ```
+     Recebe `GRANT` apenas nas tabelas e colunas exactas que cada função de §3.3 acede. Nunca se atribui ownership destas funções ao superuser `vigia`.
 2. **Política RLS *fail-closed* uniforme em todas as tabelas tenant-scoped:**
    ```sql
    ALTER TABLE <tabela> ENABLE ROW LEVEL SECURITY;
@@ -70,7 +75,16 @@ Adoptar **isolamento multi-tenant em duas camadas (Aplicação + PostgreSQL RLS)
 
 ### 3.3 Operações legítimas cross-tenant (mecanismo único)
 
-Para manter as políticas RLS das tabelas 100% uniformes (apenas `organization_id`, sem cláusulas `OR` complexas) e evitar conceder privilégios globais a `vigia_app`, **todas** as operações que precisam de cruzar tenants usam o mesmo mecanismo: **funções SQL `SECURITY DEFINER` de âmbito mínimo**, pertencentes ao role `vigia`, com `SET search_path = pg_catalog, public`, revistas pelo CTO, e sob a regra invariante de que **todo o processamento subsequente entra imediatamente em `WithTenantTx(ctx, pool, tenantID, fn)`**.
+Para manter as políticas RLS das tabelas 100% uniformes (apenas `organization_id`, sem cláusulas `OR` complexas) e evitar conceder privilégios globais a `vigia_app`, **todas** as operações que precisam de cruzar tenants usam o mesmo mecanismo: **funções SQL `SECURITY DEFINER` de âmbito mínimo**, com as seguintes regras obrigatórias:
+
+1. **Owner dedicado (nunca `SUPERUSER`):** cada função pertence a `vigia_definer` (`NOLOGIN NOSUPERUSER BYPASSRLS`), com `GRANT` estrito apenas nas colunas/tabelas que a função usa — nunca ao superuser `vigia`.
+2. **Revogação de `PUBLIC`:** como o PostgreSQL concede `EXECUTE` a `PUBLIC` por defeito em funções novas, a migration executa explicitamente para cada função:
+   ```sql
+   REVOKE EXECUTE ON FUNCTION <assinatura> FROM PUBLIC;
+   GRANT EXECUTE ON FUNCTION <assinatura> TO vigia_app;
+   ```
+3. **`search_path` fixo:** toda a função define `SET search_path = pg_catalog, public, pg_temp` (`pg_temp` sempre em último).
+4. **Revisão e reentrada em `WithTenantTx`:** cada função é revista pelo CTO 🧭 e devolve apenas identificadores mínimos de encaminhamento; **todo o processamento subsequente entra imediatamente em `WithTenantTx(ctx, pool, tenantID, fn)`**.
 
 | Operação cross-tenant | Função `SECURITY DEFINER` (âmbito mínimo) | O que devolve / Regra seguinte |
 |---|---|---|
@@ -104,9 +118,9 @@ Para manter as políticas RLS das tabelas 100% uniformes (apenas `organization_i
 | Risco | Probabilidade / Impacto | Mitigação |
 |---|---|---|
 | Runtime ligar com `vigia` (`SUPERUSER`) por erro de configuração | Média / Crítico | Teste de integração obrigatório que falha se `rolsuper` ou `rolbypassrls` for `true` na ligação de runtime + `compose.yaml` só monta `postgres_app_password` na `api`/`worker` |
-| Função `SECURITY DEFINER` demasiado permissiva ou vulnerável a `search_path` hijacking | Baixa / Crítico | `SET search_path = pg_catalog, public` obrigatório + âmbito mínimo + revisão obrigatória do CTO 🧭 |
+| Função `SECURITY DEFINER` demasiado permissiva ou vulnerável a `search_path` hijacking | Baixa / Crítico | Owner `vigia_definer` (não `SUPERUSER`), `REVOKE EXECUTE ... FROM PUBLIC`, `GRANT EXECUTE ... TO vigia_app`, `SET search_path = pg_catalog, public, pg_temp`, âmbito mínimo e revisão obrigatória do CTO 🧭 |
 | Transacção mantida aberta durante I/O externo (HTTP/SMTP/Telegram) | Média / Alto | Regra: nunca fazer chamadas de rede externas dentro de `WithTenantTx`; usar outbox |
-| Fuga em cache Redis ou canais SSE (onde o RLS não actua) | Média / Crítico | Prefixos `org:<id>:` obrigatórios por helper centralizado (única excepção: `cred:<kind>:<prefix>`) + testes negativos cross-tenant |
+| Fuga em cache Redis ou canais SSE (onde o RLS não actua) | Média / Crítico | Prefixos `org:<id>:` obrigatórios por helper centralizado (únicas excepções: `cred:<kind>:<prefix>` para `ingest`/`client` e `cred:dsn:<public_key>` para `dsn`) + testes negativos cross-tenant |
 
 ## 6. Validação / Protótipo / Benchmark
 
