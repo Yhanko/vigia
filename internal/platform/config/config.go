@@ -11,6 +11,17 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
+)
+
+// Database pool defaults and bounds (README §13.9, TASKS 1.1).
+const (
+	DefaultDatabaseMaxConns         int32 = 20
+	MinDatabaseMaxConns             int32 = 1
+	MaxDatabaseMaxConns             int32 = 100
+	DefaultDatabaseStatementTimeout       = 10 * time.Second
+	MinDatabaseStatementTimeout           = 1 * time.Second
+	MaxDatabaseStatementTimeout           = 5 * time.Minute
 )
 
 // Secret holds a sensitive string value that redacts itself when formatted or logged.
@@ -38,8 +49,10 @@ type Config struct {
 	AppURL   string
 	LogLevel string
 
-	DatabaseURL      string
-	DatabasePassword Secret
+	DatabaseURL              string
+	DatabasePassword         Secret
+	DatabaseMaxConns         int32
+	DatabaseStatementTimeout time.Duration
 
 	RedisAddr     string
 	RedisPassword Secret
@@ -72,16 +85,18 @@ func Load() (Config, error) {
 // LoadFrom loads configuration using the supplied lookup function (useful for tests).
 func LoadFrom(getenv func(string) string) (Config, error) {
 	cfg := Config{
-		AppEnv:                "development",
-		Port:                  8080,
-		AppURL:                "http://127.0.0.1:8080",
-		LogLevel:              "info",
-		CORSOrigins:           []string{"http://127.0.0.1:5173"},
-		APIMaxBodyBytes:       256 << 10, // 256 KiB
-		IngestMaxPayloadBytes: 1 << 20,   // 1 MiB
-		IngestMaxBatchItems:   500,
-		QueryMaxRangeDays:     31,
-		SMTPURL:               "smtp://mailpit:1025",
+		AppEnv:                   "development",
+		Port:                     8080,
+		AppURL:                   "http://127.0.0.1:8080",
+		LogLevel:                 "info",
+		DatabaseMaxConns:         DefaultDatabaseMaxConns,
+		DatabaseStatementTimeout: DefaultDatabaseStatementTimeout,
+		CORSOrigins:              []string{"http://127.0.0.1:5173"},
+		APIMaxBodyBytes:          256 << 10, // 256 KiB
+		IngestMaxPayloadBytes:    1 << 20,   // 1 MiB
+		IngestMaxBatchItems:      500,
+		QueryMaxRangeDays:        31,
+		SMTPURL:                  "smtp://mailpit:1025",
 	}
 
 	if v := strings.TrimSpace(getenv("APP_ENV")); v != "" {
@@ -129,6 +144,22 @@ func LoadFrom(getenv func(string) string) (Config, error) {
 	var err error
 	if cfg.DatabasePassword, err = readSecretFile(getenv, "DATABASE_PASSWORD_FILE"); err != nil {
 		return Config{}, err
+	}
+
+	if v := strings.TrimSpace(getenv("DATABASE_MAX_CONNS")); v != "" {
+		n, err := strconv.ParseInt(v, 10, 32)
+		if err != nil || n < int64(MinDatabaseMaxConns) || n > int64(MaxDatabaseMaxConns) {
+			return Config{}, fmt.Errorf("invalid DATABASE_MAX_CONNS %q: must be between %d and %d", v, MinDatabaseMaxConns, MaxDatabaseMaxConns)
+		}
+		cfg.DatabaseMaxConns = int32(n)
+	}
+
+	if v := strings.TrimSpace(getenv("DATABASE_STATEMENT_TIMEOUT")); v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil || d < MinDatabaseStatementTimeout || d > MaxDatabaseStatementTimeout {
+			return Config{}, fmt.Errorf("invalid DATABASE_STATEMENT_TIMEOUT %q: must be a duration between %s and %s", v, MinDatabaseStatementTimeout, MaxDatabaseStatementTimeout)
+		}
+		cfg.DatabaseStatementTimeout = d
 	}
 
 	cfg.RedisAddr = strings.TrimSpace(getenv("REDIS_ADDR"))

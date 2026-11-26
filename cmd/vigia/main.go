@@ -12,12 +12,12 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/CipherPath/vigia/internal/platform/config"
-	"github.com/CipherPath/vigia/internal/platform/database"
-	"github.com/CipherPath/vigia/internal/platform/httpserver"
-	"github.com/CipherPath/vigia/internal/platform/queue"
-	"github.com/CipherPath/vigia/internal/platform/telemetry"
-	"github.com/CipherPath/vigia/migrations"
+	"github.com/Yhanko/vigia/internal/platform/config"
+	"github.com/Yhanko/vigia/internal/platform/database"
+	"github.com/Yhanko/vigia/internal/platform/httpserver"
+	"github.com/Yhanko/vigia/internal/platform/queue"
+	"github.com/Yhanko/vigia/internal/platform/telemetry"
+	"github.com/Yhanko/vigia/migrations"
 )
 
 // Injected at build time via -ldflags "-X main.version=... -X main.commit=...".
@@ -95,7 +95,10 @@ func runAPI() error {
 		if err != nil {
 			return err
 		}
-		pool, err := database.NewPool(ctx, dsn)
+		pool, err := database.NewPool(ctx, dsn, database.PoolOptions{
+			MaxConns:         cfg.DatabaseMaxConns,
+			StatementTimeout: cfg.DatabaseStatementTimeout,
+		})
 		if err != nil {
 			return err
 		}

@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"io/fs"
+	"strconv"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -14,18 +15,56 @@ import (
 	"github.com/pressly/goose/v3"
 )
 
-// NewPool creates a configured pgxpool.Pool and verifies connectivity with Ping.
-func NewPool(ctx context.Context, dsn string) (*pgxpool.Pool, error) {
+// PoolOptions configures connection pool sizing and per-statement timeouts for
+// runtime connections (README §13.9). Migrations intentionally bypass
+// StatementTimeout because DDL and index builds can take longer.
+type PoolOptions struct {
+	MaxConns         int32
+	StatementTimeout time.Duration
+}
+
+const (
+	defaultMaxConns int32 = 20
+	defaultMinConns int32 = 2
+)
+
+func parsePoolConfig(dsn string, opts PoolOptions) (*pgxpool.Config, error) {
 	cfg, err := pgxpool.ParseConfig(dsn)
 	if err != nil {
 		return nil, fmt.Errorf("parse database config: %w", err)
 	}
 
-	cfg.MaxConns = 20
-	cfg.MinConns = 2
+	maxConns := opts.MaxConns
+	if maxConns <= 0 {
+		maxConns = defaultMaxConns
+	}
+	minConns := defaultMinConns
+	if maxConns < minConns {
+		minConns = maxConns
+	}
+
+	cfg.MaxConns = maxConns
+	cfg.MinConns = minConns
 	cfg.MaxConnLifetime = 30 * time.Minute
 	cfg.MaxConnIdleTime = 5 * time.Minute
 	cfg.HealthCheckPeriod = 30 * time.Second
+
+	if opts.StatementTimeout > 0 {
+		if cfg.ConnConfig.RuntimeParams == nil {
+			cfg.ConnConfig.RuntimeParams = make(map[string]string)
+		}
+		cfg.ConnConfig.RuntimeParams["statement_timeout"] = strconv.FormatInt(opts.StatementTimeout.Milliseconds(), 10)
+	}
+
+	return cfg, nil
+}
+
+// NewPool creates a configured pgxpool.Pool and verifies connectivity with Ping.
+func NewPool(ctx context.Context, dsn string, opts PoolOptions) (*pgxpool.Pool, error) {
+	cfg, err := parsePoolConfig(dsn, opts)
+	if err != nil {
+		return nil, err
+	}
 
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
@@ -67,12 +106,23 @@ func WithTx(ctx context.Context, pool *pgxpool.Pool, fn func(pgx.Tx) error) (err
 	return nil
 }
 
+// parseMigrateConfig parses a DSN for migrations without applying the runtime
+// statement_timeout (DDL and index creation may legitimately take longer).
+func parseMigrateConfig(dsn string) (*pgx.ConnConfig, error) {
+	cfg, err := pgx.ParseConfig(dsn)
+	if err != nil {
+		return nil, fmt.Errorf("parse database config: %w", err)
+	}
+	delete(cfg.RuntimeParams, "statement_timeout")
+	return cfg, nil
+}
+
 // Migrate runs goose database migrations (up, down, status, version) using
 // SQL files embedded in fsys.
 func Migrate(ctx context.Context, dsn string, fsys fs.FS, command string) error {
-	cfg, err := pgx.ParseConfig(dsn)
+	cfg, err := parseMigrateConfig(dsn)
 	if err != nil {
-		return fmt.Errorf("parse database config: %w", err)
+		return err
 	}
 
 	db := stdlib.OpenDB(*cfg)

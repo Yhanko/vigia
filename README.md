@@ -1582,7 +1582,7 @@ Também não foram cobertos acessibilidade (WCAG), suporte de browsers, internac
 
 ### 26.1 O que existe hoje
 
-**Backend Go (fundação da plataforma, fase 1.1).** Módulo `github.com/CipherPath/vigia` com a estrutura da secção 6. Subcomandos implementados: `api`, `migrate [up|down|status|version]`, `healthcheck` e `version`.
+**Backend Go (fundação da plataforma, fase 1.1).** Módulo `github.com/Yhanko/vigia` com a estrutura da secção 6. Subcomandos implementados: `api`, `migrate [up|down|status|version]`, `healthcheck` e `version`.
 
 | Método | Rota | Comportamento |
 |---|---|---|
@@ -1696,6 +1696,8 @@ LOG_LEVEL=info
 
 DATABASE_URL=postgresql://vigia@db:5432/vigia?sslmode=disable
 DATABASE_PASSWORD_FILE=/run/secrets/postgres_password
+DATABASE_MAX_CONNS=20
+DATABASE_STATEMENT_TIMEOUT=10s
 REDIS_ADDR=redis:6379
 REDIS_PASSWORD_FILE=/run/secrets/redis_password
 

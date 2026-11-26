@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestSecretRedaction(t *testing.T) {
@@ -81,6 +82,12 @@ func TestLoadFromValidationErrors(t *testing.T) {
 		{"cors origin bad scheme", map[string]string{"CORS_ORIGINS": "ftp://app.example.com"}},
 		{"invalid smtp url", map[string]string{"SMTP_URL": "http://mailpit:1025"}},
 		{"invalid api body limit", map[string]string{"API_MAX_BODY_BYTES": "0"}},
+		{"db max conns too low", map[string]string{"DATABASE_MAX_CONNS": "0"}},
+		{"db max conns too high", map[string]string{"DATABASE_MAX_CONNS": "101"}},
+		{"db max conns non-numeric", map[string]string{"DATABASE_MAX_CONNS": "abc"}},
+		{"db statement timeout too short", map[string]string{"DATABASE_STATEMENT_TIMEOUT": "500ms"}},
+		{"db statement timeout too long", map[string]string{"DATABASE_STATEMENT_TIMEOUT": "10m"}},
+		{"db statement timeout invalid", map[string]string{"DATABASE_STATEMENT_TIMEOUT": "ten-seconds"}},
 	}
 
 	for _, tt := range tests {
@@ -121,8 +128,27 @@ func TestLoadFromDevelopmentAllowsMissingDependencies(t *testing.T) {
 	if err != nil {
 		t.Fatalf("development defaults should load, got %v", err)
 	}
-	if !cfg.IsDevelopment() || cfg.APIMaxBodyBytes != 256<<10 {
+	if !cfg.IsDevelopment() || cfg.APIMaxBodyBytes != 256<<10 ||
+		cfg.DatabaseMaxConns != DefaultDatabaseMaxConns ||
+		cfg.DatabaseStatementTimeout != DefaultDatabaseStatementTimeout {
 		t.Fatalf("unexpected defaults: %+v", cfg)
+	}
+
+	custom, err := LoadFrom(func(k string) string {
+		switch k {
+		case "DATABASE_MAX_CONNS":
+			return "50"
+		case "DATABASE_STATEMENT_TIMEOUT":
+			return "45s"
+		default:
+			return ""
+		}
+	})
+	if err != nil {
+		t.Fatalf("custom db pool config failed: %v", err)
+	}
+	if custom.DatabaseMaxConns != 50 || custom.DatabaseStatementTimeout != 45*time.Second {
+		t.Fatalf("unexpected custom db pool config: max=%d timeout=%s", custom.DatabaseMaxConns, custom.DatabaseStatementTimeout)
 	}
 }
 

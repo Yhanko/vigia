@@ -250,7 +250,7 @@
 - [x] `internal/platform/telemetry`: `log/slog` JSON + `LOG_LEVEL` (§14.2) + testes
 - [x] `internal/platform/clock`: relógio injectável (`System`/`Fake`) para testes determinísticos (§15.5)
 - [x] `internal/platform/database`: pool `pgx`, `WithTx` e `Ping` (§5.1)
-  - [ ] Pool configurável por env (`DATABASE_MAX_CONNS`) e `statement_timeout` por defeito na ligação (§13.9)
+  - [x] Pool configurável por env (`DATABASE_MAX_CONNS`) e `statement_timeout` por defeito na ligação (§13.9)
   - [ ] Teste de integração com `testcontainers-go` (Timescale) para `NewPool`, `WithTx` e migrations up/down (`//go:build integration` + job no CI)
 - [x] `internal/platform/queue`: cliente Redis com password via `REDIS_PASSWORD_FILE` + `Ping` (§5.1)
 - [x] `migrations/` + `vigia migrate <up|down|status|version>` com `goose` embutido (§5.1, §26.5)
