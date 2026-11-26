@@ -10,3 +10,8 @@
 - [ ] **4. Constante `DefaultDatabaseMaxConns` duplicada:** eliminar a duplicação entre `internal/platform/config` e `internal/platform/database` (uma só fonte de verdade).
 - [ ] **5. `api/openapi.yaml` (`429` em `/status`):** confirmar que `GET /api/v1/status` devolve efectivamente `429` quando o middleware de rate limit da 1.2 for aplicado.
 - [ ] **6. Fronteira de handlers (`/api/v1/*`):** na 1.2, todos os handlers de domínio vivem em `internal/modules/<domínio>`, nunca em `internal/platform/httpserver` (apenas o `/status` de infra ficou lá no bootstrap).
+
+## Revisão do crypto — 1.2 (2026-11-26)
+
+- [ ] **7. `crypto.Encrypter` no produtor:** as convenções Go definem interfaces do lado do consumidor; quando `identity` (e outros módulos) usarem `EnvelopeEncrypter`, definir a interface mínima no pacote consumidor e remover a interface redundante do produtor se já não for necessária.
+- [ ] **8. Injecção de `EnvelopeEncrypter` em `cmd/vigia/main.go`:** actualmente `main.go` cria e descarta o `EnvelopeEncrypter`; na 1.2 injectá-lo explicitamente no serviço de `identity` (sem global).

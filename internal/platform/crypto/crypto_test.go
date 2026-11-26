@@ -13,6 +13,8 @@ import (
 const (
 	testKey1Hex = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 	testKey2Hex = "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210"
+	testOrgUUID = "aaaa1111-1111-4111-8111-111111111111"
+	testOrg2    = "bbbb2222-2222-4222-8222-222222222222"
 	testUUID1   = "11111111-1111-4111-8111-111111111111"
 	testUUID2   = "22222222-2222-4222-8222-222222222222"
 )
@@ -20,7 +22,7 @@ const (
 func testScope() Scope {
 	return Scope{
 		OwnerType: OwnerTypeOrg,
-		OwnerID:   "org-11111111-1111-4111-8111-111111111111",
+		OwnerID:   testOrgUUID,
 		Table:     "notification_destinations",
 		Column:    "config_encrypted",
 		RecordID:  testUUID1,
@@ -95,12 +97,13 @@ func TestScopeValidation(t *testing.T) {
 		name  string
 		scope Scope
 	}{
-		{"invalid owner type", Scope{OwnerType: "project", OwnerID: "a", Table: "t", Column: "c", RecordID: testUUID1}},
+		{"invalid owner type", Scope{OwnerType: "project", OwnerID: testOrgUUID, Table: "t", Column: "c", RecordID: testUUID1}},
 		{"empty owner id", Scope{OwnerType: OwnerTypeOrg, OwnerID: "", Table: "t", Column: "c", RecordID: testUUID1}},
-		{"empty table", Scope{OwnerType: OwnerTypeOrg, OwnerID: "a", Table: "", Column: "c", RecordID: testUUID1}},
-		{"empty column", Scope{OwnerType: OwnerTypeOrg, OwnerID: "a", Table: "t", Column: "", RecordID: testUUID1}},
-		{"non-uuid record id", Scope{OwnerType: OwnerTypeOrg, OwnerID: "a", Table: "t", Column: "c", RecordID: "not-a-uuid"}},
-		{"empty record id", Scope{OwnerType: OwnerTypeUser, OwnerID: "a", Table: "users", Column: "mfa_secret", RecordID: ""}},
+		{"non-uuid owner id", Scope{OwnerType: OwnerTypeOrg, OwnerID: "org-not-a-uuid", Table: "t", Column: "c", RecordID: testUUID1}},
+		{"empty table", Scope{OwnerType: OwnerTypeOrg, OwnerID: testOrgUUID, Table: "", Column: "c", RecordID: testUUID1}},
+		{"empty column", Scope{OwnerType: OwnerTypeOrg, OwnerID: testOrgUUID, Table: "t", Column: "", RecordID: testUUID1}},
+		{"non-uuid record id", Scope{OwnerType: OwnerTypeOrg, OwnerID: testOrgUUID, Table: "t", Column: "c", RecordID: "not-a-uuid"}},
+		{"empty record id", Scope{OwnerType: OwnerTypeUser, OwnerID: testOrgUUID, Table: "users", Column: "mfa_secret", RecordID: ""}},
 	}
 
 	for _, tt := range tests {
@@ -200,7 +203,7 @@ func TestDecryptRejectsWrongAADAndTampering(t *testing.T) {
 			scope Scope
 		}{
 			{"different owner type", Scope{OwnerType: OwnerTypeUser, OwnerID: scope.OwnerID, Table: scope.Table, Column: scope.Column, RecordID: scope.RecordID}},
-			{"different org/owner id", Scope{OwnerType: scope.OwnerType, OwnerID: "org-other", Table: scope.Table, Column: scope.Column, RecordID: scope.RecordID}},
+			{"different org/owner id", Scope{OwnerType: scope.OwnerType, OwnerID: testOrg2, Table: scope.Table, Column: scope.Column, RecordID: scope.RecordID}},
 			{"different table", Scope{OwnerType: scope.OwnerType, OwnerID: scope.OwnerID, Table: "collectors", Column: scope.Column, RecordID: scope.RecordID}},
 			{"different column", Scope{OwnerType: scope.OwnerType, OwnerID: scope.OwnerID, Table: scope.Table, Column: "other_col", RecordID: scope.RecordID}},
 			{"different record id (same tenant)", Scope{OwnerType: scope.OwnerType, OwnerID: scope.OwnerID, Table: scope.Table, Column: scope.Column, RecordID: testUUID2}},
@@ -211,6 +214,35 @@ func TestDecryptRejectsWrongAADAndTampering(t *testing.T) {
 					t.Fatalf("Decrypt(%s) err = %v, want ErrDecrypt", tt.name, err)
 				}
 			})
+		}
+	})
+
+	t.Run("uppercase and lowercase UUIDs produce identical AAD", func(t *testing.T) {
+		upperScope := Scope{
+			OwnerType: OwnerTypeOrg,
+			OwnerID:   strings.ToUpper(testOrgUUID),
+			Table:     scope.Table,
+			Column:    scope.Column,
+			RecordID:  strings.ToUpper(testUUID1),
+		}
+		lowerScope := Scope{
+			OwnerType: OwnerTypeOrg,
+			OwnerID:   strings.ToLower(testOrgUUID),
+			Table:     scope.Table,
+			Column:    scope.Column,
+			RecordID:  strings.ToLower(testUUID1),
+		}
+
+		ct, err := enc.Encrypt(upperScope, []byte("case-insensitive-uuid-secret"))
+		if err != nil {
+			t.Fatalf("Encrypt(upperScope) error = %v", err)
+		}
+		pt, err := enc.Decrypt(lowerScope, ct)
+		if err != nil {
+			t.Fatalf("Decrypt(lowerScope) error = %v", err)
+		}
+		if string(pt) != "case-insensitive-uuid-secret" {
+			t.Fatalf("decrypted = %q, want case-insensitive-uuid-secret", string(pt))
 		}
 	})
 

@@ -34,8 +34,8 @@ func (s Scope) Validate() error {
 	if s.OwnerType != OwnerTypeOrg && s.OwnerType != OwnerTypeUser {
 		return fmt.Errorf("%w: owner_type must be %q or %q", ErrInvalidScope, OwnerTypeOrg, OwnerTypeUser)
 	}
-	if strings.TrimSpace(s.OwnerID) == "" {
-		return fmt.Errorf("%w: owner_id is required", ErrInvalidScope)
+	if !isValidUUID(s.OwnerID) {
+		return fmt.Errorf("%w: owner_id must be a valid UUID", ErrInvalidScope)
 	}
 	if strings.TrimSpace(s.Table) == "" {
 		return fmt.Errorf("%w: table is required", ErrInvalidScope)
@@ -50,11 +50,18 @@ func (s Scope) Validate() error {
 }
 
 // encodeAAD produces a deterministic, length-prefixed AAD byte slice so field
-// boundaries can never be confused.
+// boundaries can never be confused. OwnerID and RecordID are normalized to
+// lowercase so canonical UUID casing differences never break decryption.
 func (s Scope) encodeAAD() []byte {
 	var b strings.Builder
 	b.WriteString("v1")
-	for _, field := range []string{s.OwnerType, s.OwnerID, s.Table, s.Column, s.RecordID} {
+	for _, field := range []string{
+		s.OwnerType,
+		strings.ToLower(s.OwnerID),
+		s.Table,
+		s.Column,
+		strings.ToLower(s.RecordID),
+	} {
 		b.WriteByte('|')
 		b.WriteString(strconv.Itoa(len(field)))
 		b.WriteByte(':')
