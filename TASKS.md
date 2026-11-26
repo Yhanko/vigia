@@ -186,21 +186,21 @@
 ### 0.2 ADRs obrigatórios em `docs/adr/` (§24.1)
 > Formato: contexto, alternativas, decisão, consequências, riscos, data, responsável; protótipo/benchmark quando técnico. O texto em *itálico* diz que fase fica bloqueada sem o ADR. Todos os ADRs são 🧭.
 
-- [ ] Template `docs/adr/000-template.md`
-- [ ] ADR-001: Monorepo e monólito modular — *antes da Fase 1*
-- [ ] ADR-002: PostgreSQL para metadata — *antes da Fase 1*
+- [~] Template `docs/adr/000-template.md` — *escrito em `docs/fase0-adrs-base`; aguarda revisão do CTO 🧭*
+- [~] ADR-001: Monorepo e monólito modular — *antes da Fase 1; escrito em `docs/fase0-adrs-base`, aguarda revisão do CTO 🧭*
+- [~] ADR-002: PostgreSQL para metadata — *antes da Fase 1; escrito em `docs/fase0-adrs-base`, aguarda revisão do CTO 🧭*
 - [ ] ADR-003: TimescaleDB vs ClickHouse para telemetria (**incl. revisão da Timescale License**, §5.3) e onde vivem os `issue_events` — *antes da Fase 2*
 - [ ] ADR-004: Asynq vs River vs RabbitMQ/NATS; semântica de entrega (at-least-once + dedup) — *antes da Fase 2*
-- [ ] ADR-005: Autenticação (sessões, cookies, CSRF) e formato/hash das API keys, **incluindo o tipo "DSN key" pública** (2.1) — *antes da 1.2*
+- [~] ADR-005: Autenticação (sessões, cookies, CSRF) e formato/hash das API keys, **incluindo o tipo "DSN key" pública** (2.1) — *antes da 1.2; escrito em `docs/fase0-adr-005-auth-keys-dsn`, aguarda revisão do CTO 🧭*
 - [ ] ADR-006: Ingestão OpenTelemetry — *antes da Fase 9*
 - [ ] ADR-007: Modelo de métricas e cardinalidade — *antes da Fase 3*
-- [ ] ADR-008: Isolamento de tenant (aplicação + RLS) — *antes da 1.2*
+- [~] ADR-008: Isolamento de tenant (aplicação + RLS) — *antes da 1.2; escrito em `docs/fase0-adr-008-tenant-isolation`, aguarda revisão do CTO 🧭*
 - [ ] ADR-009: Retenção e quotas (eventos de erro/dia, mensagens WhatsApp/mês) — *antes da Fase 2*
 - [ ] ADR-010: Estratégia de deploy — *antes do go-live da Fase 2 (2.9)*
 - [ ] ADR-011: SSE vs WebSocket; autenticação do stream; fan-out entre réplicas — *antes da Fase 4*
 - [ ] ADR-012: Segurança dos collectors pull (BD e endpoints) — *antes da Fase 6*
-- [ ] ADR-013: Go como linguagem do backend — *já decidido; formalizar*
-- [ ] ADR-014: Acesso a dados (`sqlc` + `pgx` vs ORM) — *já decidido; formalizar*
+- [~] ADR-013: Go como linguagem do backend — *já decidido; formalizado em `docs/fase0-adrs-base`, aguarda revisão do CTO 🧭*
+- [~] ADR-014: Acesso a dados (`sqlc` + `pgx` vs ORM) — *já decidido; formalizado em `docs/fase0-adrs-base`, aguarda revisão do CTO 🧭*
 - [ ] ADR-015: Gestão de chaves de encriptação (envelope encryption, KEK/DEK, rotação) — *antes da Fase 2* (telefones, chat IDs e tokens de canais são encriptados)
 - [ ] ADR-016: Armazenamento de "events" genéricos (`/ingest/events`) — *antes da Fase 3*
 - [ ] **ADR-017: Compatibilidade com o protocolo de ingestão dos SDKs Sentry** — *antes da Fase 2*. Tem de fixar:
@@ -214,7 +214,7 @@
 - [ ] **ADR-019: Fornecedor de email transaccional em produção** (Resend, Postmark, Amazon SES ou SMTP próprio) — *antes de 2.9*
 
 ### 0.3 Segurança, requisitos e convenções
-- [ ] Threat model formal em `docs/security/threat-model.md` (activos e ameaças da §11.7, STRIDE por fronteira de confiança) (§11.7)
+- [~] Threat model formal em `docs/security/threat-model.md` (activos e ameaças da §11.7, STRIDE por fronteira de confiança) (§11.7) — *escrito em `docs/fase0-threat-model`; aguarda revisão/merge*
 - [ ] Classificação de dados (público / interno / confidencial / segredo) e **lista de dados proibidos** de ingestão (§17.3, §20.1)
 - [ ] SLOs iniciais e metas de capacidade documentados (§14.4, §25.2), incl. **RPO/RTO** por classe de dado (§16.6)
 - [ ] Respostas escritas às 12 perguntas da §24.2 (público-alvo, modelo SaaS/self-hosted, volume, retenção default, alvo de deploy…) — o desenvolvedor prepara `docs/decisions/perguntas-ceo.md` com opções e recomendação; 👔 o CEO responde
