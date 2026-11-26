@@ -1,3 +1,5 @@
+> **Template oficial de ADR** — Estado: Aceite · Revisão CTO: Aprovado (2026-11-26)
+
 # ADR-NNN: Título curto e descritivo da decisão
 
 - **Estado:** Proposto | Aceite | Substituído por ADR-XXX | Depreciado

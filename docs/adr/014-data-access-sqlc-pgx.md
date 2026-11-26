@@ -1,9 +1,9 @@
 # ADR-014: Acesso a dados com `sqlc` + `pgx/v5` em vez de ORM
 
-- **Estado:** Proposto (decisão tomada pelo CTO; formalização para revisão)
+- **Estado:** Aceite
 - **Data:** 2026-11-26
 - **Responsável:** Desenvolvedor (Gemini)
-- **Revisão CTO:** Pendente
+- **Revisão CTO:** Aprovado (2026-11-26)
 - **Fase bloqueada:** Antes da Fase 1 (já decidido; formalizar)
 - **Referências:** README §5.1, §8.6, §11.1, §11.5, §24.1
 
@@ -46,7 +46,7 @@ Adoptar **`pgx/v5` (`pgxpool`) + `sqlc`** como camada padrão de acesso a dados:
 
 1. **Schema e queries:** migrations SQL (`goose`) em `migrations/` são o schema de entrada do `sqlc`; queries ficam organizadas por módulo em `queries/`.
 2. **Geração controlada:** `sqlc.yaml` gera código em `internal/platform/database/sqlcgen` (ou por módulo, conforme a fronteira da Fase 1.2) com `sql_package: "pgx/v5"`, `emit_interface: true` e `emit_empty_slices: true`. O CI falha se houver diferenças não geradas (`sqlc diff`).
-3. **Transacções e RLS:** todas as operações multi-query e de outbox usam `database.WithTx` sobre `pgxpool.Pool` com `pgx.Tx`, permitindo `SET LOCAL app.organization_id` (ADR-008) e commit atómico.
+3. **Transacções e RLS:** todas as operações multi-query e de outbox usam `database.WithTx` sobre `pgxpool.Pool` com `pgx.Tx`, permitindo `SELECT set_config('app.organization_id', $1, true)` (ADR-008) e commit atómico.
 4. **Queries dinâmicas excepcionais:** se uma pesquisa futura (ex.: `/metrics/query`) exigir construção condicional que `sqlc.narg` não cubra com clareza, é permitida apenas com allowlist estrita de identificadores e valores 100% parametrizados via `pgx`, mediante revisão do CTO.
 5. **Escrita em lote:** pipelines de alto volume podem usar `pgx.CopyFrom` directamente sobre o pool.
 

@@ -1,9 +1,9 @@
 # ADR-001: Monorepo e monólito modular
 
-- **Estado:** Proposto (aguarda revisão do CTO)
+- **Estado:** Aceite
 - **Data:** 2026-11-26
 - **Responsável:** Desenvolvedor (Gemini)
-- **Revisão CTO:** Pendente
+- **Revisão CTO:** Aprovado (2026-11-26)
 - **Fase bloqueada:** Antes da Fase 1
 - **Referências:** README §2, §4.4, §4.5, §6, §24.1
 

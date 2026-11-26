@@ -1,9 +1,9 @@
 # ADR-002: PostgreSQL para metadata transaccional
 
-- **Estado:** Proposto (aguarda revisão do CTO)
+- **Estado:** Aceite
 - **Data:** 2026-11-26
 - **Responsável:** Desenvolvedor (Gemini)
-- **Revisão CTO:** Pendente
+- **Revisão CTO:** Aprovado (2026-11-26)
 - **Fase bloqueada:** Antes da Fase 1
 - **Referências:** README §2, §5.1, §8.2, §8.6, §11.1, §24.1
 

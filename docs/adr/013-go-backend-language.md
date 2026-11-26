@@ -1,9 +1,9 @@
 # ADR-013: Go como linguagem do backend
 
-- **Estado:** Proposto (decisão tomada pelo CTO; formalização para revisão)
+- **Estado:** Aceite
 - **Data:** 2026-11-26
 - **Responsável:** Desenvolvedor (Gemini)
-- **Revisão CTO:** Pendente
+- **Revisão CTO:** Aprovado (2026-11-26)
 - **Fase bloqueada:** Antes da Fase 1 (já decidido; formalizar)
 - **Referências:** README §5.1, §5.2, §13, §16.4, §23, §24.1
 
