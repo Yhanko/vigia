@@ -60,6 +60,7 @@ Implementar `internal/platform/crypto` na **Fase 1.2** com **Envelope Encryption
      k1:fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210
      ```
    - `key_id`: 1–16 caracteres ASCII `[a-z0-9_-]`; rejeitado no arranque se o ficheiro for inválido ou alguma chave não tiver 32 bytes exactos.
+   - **Compatibilidade com os ficheiros existentes (acção obrigatória na tarefa 1.2):** actualmente `secrets/README.md` gera 64 hex sem `key_id` e `internal/platform/config` valida apenas `MinKeyLength` (≥ 32 chars). A tarefa 1.2 (`internal/platform/crypto`) **actualiza a validação em `internal/platform/config`** para exigir o formato `<key_id>:<64-hex>`, **actualiza o gerador em `secrets/README.md` (bash e PowerShell)** para escrever `k1:<64-hex>`, e **falha no arranque com mensagem clara** se detectar um ficheiro no formato antigo sem `key_id`.
 2. **DEK (Data Encryption Key):**
    - 32 bytes (256 bits) gerados com `crypto/rand` **por cada operação `Encrypt`**.
    - Limpa da memória com `clear(dek)` em `defer` imediatamente após cifrar/decifrar.
@@ -67,7 +68,7 @@ Implementar `internal/platform/crypto` na **Fase 1.2** com **Envelope Encryption
 ### 3.2 Algoritmo, Nonces e AAD (Additional Authenticated Data)
 1. **Algoritmo:** `AES-256-GCM` (`aes.NewCipher` + `cipher.NewGCM`), tanto para `DEK(plaintext)` como para `KEK(DEK)`.
 2. **Nonces:** 96 bits (12 bytes) gerados com `crypto/rand` **independentemente** para o *wrap* da DEK e para o ciphertext do payload — nunca reutilizados, nunca derivados de timestamps ou contadores partilhados.
-3. **AAD obrigatório (anti *ciphertext swapping*):**
+3. **AAD obrigatório (anti *ciphertext swapping* entre tenants, colunas e registos):**
    - Estrutura canónica de domínio:
      ```go
      type Scope struct {
@@ -75,10 +76,12 @@ Implementar `internal/platform/crypto` na **Fase 1.2** com **Envelope Encryption
          OwnerID   string // UUID do tenant (organization_id) ou user_id
          Table     string // ex.: "notification_destinations", "users"
          Column    string // ex.: "config_encrypted", "mfa_secret_encrypted"
+         RecordID  string // UUID do registo (gerado na aplicação antes do INSERT)
      }
      ```
-   - Codificação determinística e sem ambiguidade (prefixada por comprimento, ex.: `v1|<len>:<OwnerType>|<len>:<OwnerID>|<len>:<Table>|<len>:<Column>`), passada como `additionalData` em **ambas** as operações GCM (wrap da DEK e cifra do payload).
-   - Para todas as tabelas tenant-scoped, `OwnerType = "org"` e `OwnerID = organization_id`. Para dados globais de utilizador sem `organization_id` (ex.: `users.mfa_secret_encrypted`), `OwnerType = "user"` e `OwnerID = user_id`.
+   - **Porquê `RecordID`:** sem `RecordID`, mesmo dentro do mesmo tenant seria possível mover um ciphertext de um registo para outro na mesma coluna (ex.: copiar o telefone encriptado de um membro para o destino de notificação de outro membro). Como a aplicação gera o `UUID` do registo **antes** do `INSERT`, `RecordID` está sempre disponível no momento de chamar `Encrypt`.
+   - Codificação determinística e sem ambiguidade (prefixada por comprimento, ex.: `v1|<len>:<OwnerType>|<len>:<OwnerID>|<len>:<Table>|<len>:<Column>|<len>:<RecordID>`), passada como `additionalData` em **ambas** as operações GCM (wrap da DEK e cifra do payload).
+   - Para todas as tabelas tenant-scoped, `OwnerType = "org"` e `OwnerID = organization_id`. Para dados globais de utilizador sem `organization_id` (ex.: `users.mfa_secret_encrypted`), `OwnerType = "user"`, `OwnerID = user_id` e `RecordID = user_id`.
 
 ### 3.3 Formato do envelope armazenado (`bytea`)
 Versionado com prefixo de versão (`1` byte = `0x01`) para permitir evolução futura de algoritmo sem quebrar registos antigos:
@@ -124,7 +127,7 @@ Armazenado em PostgreSQL como `bytea` (evita overhead de base64 e confusão de e
 |---|---|---|
 | Perda da KEK em produção | Baixa / Crítico | Guardar KEK no secret manager / backup offline encriptado separado da BD; runbook de gestão de chaves |
 | Fuga da KEK junto com backup da BD | Baixa / Crítico | KEK nunca vive na BD nem no repositório; apenas em Docker secret / secret manager fora dos backups `pg_dump` |
-| Cópia de ciphertext entre tenants ou colunas (BOLA / SQL bug) | Baixa / Crítico | AAD obrigatório com `OwnerType + OwnerID + Table + Column` verificado pelo GCM + testes negativos obrigatórios |
+| Cópia de ciphertext entre tenants, colunas ou registos do mesmo tenant (BOLA / SQL bug) | Baixa / Crítico | AAD obrigatório com `OwnerType + OwnerID + Table + Column + RecordID` verificado pelo GCM + testes negativos obrigatórios |
 | Reutilização de nonce AES-GCM | Muito baixa / Crítico | DEK única por registo + nonce de 96 bits gerado via `crypto/rand` por chamada |
 | Erro de `Decrypt` vazar plaintext parcial ou detalhes da chave | Baixa / Alto | GCM falha atomicamente antes de devolver dados; erros genéricos sem nunca incluir key/plaintext |
 
@@ -132,7 +135,7 @@ Armazenado em PostgreSQL como `bytea` (evita overhead de base64 e confusão de e
 
 - **Testes unitários obrigatórios na Fase 1.2 (`internal/platform/crypto/crypto_test.go`):**
   - Round-trip `Encrypt` → `Decrypt` com payloads vazios, pequenos e grandes.
-  - **Testes negativos de AAD:** decifrar com outro `organization_id`, outro `user_id`, outra `Table` ou outra `Column` → **tem de falhar**.
+  - **Testes negativos de AAD:** decifrar com outro `organization_id`, outro `user_id`, outra `Table`, outra `Column` ou **outro `RecordID`** → **tem de falhar**.
   - **Integridade:** alterar 1 bit no `wrapped_dek`, `dek_nonce`, `data_nonce` ou `ciphertext` → **tem de falhar**.
   - **Rotação de KEK:** encriptar com `k1`, rodar keyring para `[k2, k1]`, decifrar com sucesso, executar `Rewrap`, remover `k1` do keyring e confirmar que decifra apenas com `[k2]`.
   - **Fuzzing (`go test -fuzz`)** no parser do envelope binário contra inputs truncados ou malformados (zero panics).
