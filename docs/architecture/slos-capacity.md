@@ -1,0 +1,69 @@
+# SLOs Iniciais, Metas de Capacidade e RPO/RTO
+
+- **Versão:** 1.0 (Fase 0 — Discovery; baseline inicial para o MVP, a validar com load tests na Fase 2.9 e Fase 3)
+- **Data:** 2026-11-26
+- **Responsável:** Desenvolvedor (Gemini)
+- **Referências:** README §13, §14.4, §16.6, §25.2; TASKS 0.3, 2.9
+
+> **Nota:** estes valores constituem a proposta técnica inicial para uma infraestrutura modesta de MVP (VPS único ou 2 nós com Docker Compose). Devem ser revistos após as respostas do CEO em `docs/decisions/perguntas-ceo.md` e validados com benchmarks reais antes do go-live (Fase 2.9).
+
+---
+
+## 1. SLOs iniciais (Service Level Objectives)
+
+| Serviço / Fluxo | SLI (Indicador) | SLO Inicial (MVP) | Janela | Notas |
+|---|---|---|---|---|
+| **Product API (`/api/v1/*`)** | Pedidos válidos (não-4xx de cliente) com resposta 2xx/3xx | **99,5%** (meta V1 madura: **99,9%**) | 30 dias | Exclui janelas de manutenção anunciadas |
+| **Latência Product API** | Duração P95 dos endpoints core (`GET /issues`, `GET /projects`, etc.) | **≤ 300 ms** (P99 ≤ 800 ms) | 30 dias | Login (Argon2id) tem alvo próprio: P95 ≤ 400 ms |
+| **Ingestão Sentry (`/api/{id}/envelope\|store`)** | Eventos válidos aceites e enfileirados em Redis AOF `everysec` (`200`; exclui `429` por quota do cliente) | **99,9%** | 30 dias | Hot path prioritário; latência P95 ≤ 100 ms. *Durabilidade:* Redis AOF `appendfsync everysec` implica risco residual ≤ 1 s em crash súbito do nó (metadata e `notification_outbox` usam PostgreSQL ACID) |
+| **Processamento de erros (`worker`)** | Atraso entre `received_at` e persistência do `issue`/`issue_event` | **P95 ≤ 10 s** (P99 ≤ 30 s) | 30 dias | Sob carga normal (fora de rajadas acima de quota) |
+| **Alertas de erro (novo issue / regressão)** | Atraso entre persistência do evento e escrita na `notification_outbox` | **P95 ≤ 15 s** | 30 dias | Transacção atómica no `worker` |
+| **Alertas de pico / métricas (Fase 2.5 / 4)** | Atraso entre condição atingida e avaliação/disparo | **≤ 2× intervalo de avaliação** | 30 dias | Conforme README §14.4 |
+| **Dispatcher de notificações** | Atraso entre registo na `notification_outbox` e **1.ª tentativa de envio** ao fornecedor (email/Telegram/WhatsApp) | **P95 ≤ 15 s** (P99 ≤ 45 s) | 30 dias | Mede a **tentativa**, não a recepção no dispositivo (§7.7) |
+| **UI Web (`web/`)** | Disponibilidade dos assets estáticos + `/api/v1/status` | **99,5%** (meta V1: **99,9%**) | 30 dias | — |
+
+**Objectivo combinado do MVP (TASKS Fase 2):** do erro ocorrer na app do cliente até a 1.ª tentativa de entrega no Telegram/WhatsApp/Email em **< 60 segundos** (orçamento: ~10 s worker + ~15 s outbox/dispatcher + latência do fornecedor).
+
+---
+
+## 2. Metas de capacidade alvo e orçamento de armazenamento (MVP — Fase 2.9)
+
+Pressupostos iniciais para um servidor VPS dedicado de entrada (ex.: **4 vCPU, 8–16 GB RAM, 160–250 GB SSD NVMe**), derivados directamente das quotas propostas na pergunta 4 de `docs/decisions/perguntas-ceo.md` (50 orgs × média de 100 000 eventos/mês por org = **5 milhões de eventos/mês**):
+
+| Dimensão | Alvo MVP (Fase 2) | Alvo V1 Completa (Fases 3–8) | Controlo |
+|---|---|---|---|
+| Organizações activas | Até **50** | Até **250** | Isolamento RLS + quotas por org |
+| Projectos activos | Até **200** | Até **1 000** | Quota por plano |
+| Volume mensal de erros | **1–5 milhões / mês** (~167 mil/dia no topo) | **25 milhões / mês** (~833 mil/dia) | Quotas mensais por plano |
+| Ingestão de erros sustentada (média) | **~2 eventos/s** (picos diurnos 10–20 ev/s) | **~10 eventos/s** (picos 50–100 ev/s) | Derivado das quotas mensais |
+| Ingestão de erros em rajada (burst) | **250 eventos/s** durante 5 min | **1 000 eventos/s** durante 5 min | Fila Redis como amortecedor + `429`/`X-Sentry-Rate-Limits` |
+| Ingestão de métricas (Fase 3) | N/A no MVP | **1 000 pontos/s** (burst 5 000/s) | Escrita em lote (`COPY`) + TimescaleDB |
+| Notificações (email + Telegram + WhatsApp) | Até **5 000/dia** (com quota mensal de WhatsApp por org) | Até **25 000/dia** | Dispatcher com rate limit por canal/destino |
+| Tamanho médio por `issue_event` | ≤ **16 KB** bruto após truncagem/scrubbing | ≤ **16 KB** bruto | Limites de frames/breadcrumbs + descarte de `request.data` |
+
+### 2.1 Orçamento de armazenamento (30 dias de retenção)
+
+| Cenário | Eventos / mês | Tamanho médio bruto | Bruto (30 dias, sem compressão) | Comprimido (~4–5× Timescale/TOAST) | Índices + WAL + Metadata + Source maps | Total estimado em disco |
+|---|---|---|---|---|---|---|
+| **MVP (50 orgs — topo)** | 5 000 000 | 16 KB | ~80 GB (~2,7 GB/dia) | **16–20 GB** | ~15–20 GB | **~35–40 GB** *(cabe com folga em 160–250 GB NVMe)* |
+| **V1 (250 orgs)** | 25 000 000 | 16 KB | ~400 GB (~13,3 GB/dia) | **80–100 GB** | ~50–60 GB | **~140–160 GB** *(exige volume ≥ 300–500 GB NVMe)* |
+
+---
+
+## 3. RPO e RTO por classe de dado (§16.6)
+
+| Classe de dado | Exemplos | RPO (Perda máxima aceitável) | RTO (Tempo máximo de recuperação) | Estratégia de backup |
+|---|---|---|---|---|
+| **Metadata crítica** | `users`, `organizations`, `memberships`, `projects`, `api_credentials`, `alert_rules`, `notification_destinations`, `audit_logs` | **≤ 1 hora** (MVP: backup diário + WAL archiving contínuo ou dumps horários encriptados) | **≤ 2 horas** | `pg_dump` / `pgBackRest` encriptado fora do servidor (S3/object storage) + teste periódico de restore |
+| **Issues e estado operacional** | `issues`, `incidents`, `notifications` | **≤ 1 hora** | **≤ 2 horas** | Mesma instância PostgreSQL da metadata |
+| **Telemetria e eventos de alto volume** | `issue_events`, `metrics`, `monitor_check_results` | **≤ 24 horas** | **≤ 4 horas** | Incluído no backup diário; dados efémeros com retenção curta (30 dias) |
+| **Source maps / artefactos** | Ficheiros em object storage / volume | **≤ 24 horas** | **≤ 4 horas** | Sincronização diária encriptada (clientes também podem reenviar no CI) |
+| **Fila Redis / cache** | Jobs em trânsito, rate limits, cache | **Best-effort** (AOF `appendfsync everysec` já activo em `redis.conf`) | **≤ 15 minutos** | Sem backup de cache; `notification_outbox` em PostgreSQL garante zero perda de notificações |
+| **Segredos e KEKs (`secrets/`)** | `ENCRYPTION_KEY_FILE`, `API_KEY_PEPPER_FILE`, tokens | **0 (zero perda)** | **≤ 30 minutos** | Cópias encriptadas offline / secret manager **separadas** dos backups da BD |
+
+---
+
+## 4. Critérios de validação
+
+- **Fase 2.9 (go-live MVP):** executar load test sintético atingindo **20 eventos/s sustentados** (acima da média de ~2 ev/s derivada das quotas) e **250 eventos/s em rajada** durante 5 min, verificando P95 ≤ 100 ms na ingestão e `429` + `X-Sentry-Rate-Limits` sob sobrecarga; ensaiar 1 restore completo de backup cronometrado para comprovar RTO ≤ 2 h.
+- **Fase 3 (métricas):** load test de 1 000 pontos/s com escrita em lote e verificação da política de retenção/compressão do TimescaleDB.

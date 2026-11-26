@@ -337,6 +337,7 @@ vigia/
 ├── queries/            # SQL de entrada para o sqlc
 ├── web/                # React + TypeScript
 ├── sdks/
+│   ├── go/             # SDK Go próprio (logo após o MVP, secção 19)
 │   └── node/           # SDK Node próprio (adiado para a fase 10, secção 19)
 ├── infrastructure/
 │   ├── docker/         # configuração dos serviços (ex.: redis/redis.conf)
@@ -1338,7 +1339,7 @@ Os clientes usam os **SDKs oficiais Sentry** (licença MIT, mantidos pela comuni
 Sentry.init({ dsn: "https://<public_key>@<host-do-vigia>/<project_id>" });
 ```
 
-O DSN do Vigia tem o formato dos SDKs Sentry: `public_key` é uma chave pública só de escrita de erros (10.1) e `project_id` é o identificador numérico público do projecto. O SDK próprio descrito abaixo fica **adiado para a fase 10** e só será feito se surgir uma necessidade que os SDKs Sentry não cubram (por exemplo, métricas da secção 7.4).
+O DSN do Vigia tem o formato dos SDKs Sentry: `public_key` é uma chave pública só de escrita de erros (10.1) e `project_id` é o identificador numérico público do projecto. Excepção decidida pelo CEO em 2026-11-26: um **SDK Go próprio** (`sdks/go/`) é construído **logo a seguir ao go-live do MVP**, sem atrasar o lançamento; até lá, os clientes Go usam o `sentry-go`. O SDK Node descrito abaixo continua **adiado para a fase 10** e só será feito se surgir uma necessidade que os SDKs Sentry não cubram (por exemplo, métricas da secção 7.4).
 
 ### 19.1 SDK Node próprio (adiado) — API desejada
 

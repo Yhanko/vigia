@@ -34,7 +34,7 @@
 6. **Trabalho já feito fora de ordem:** as tarefas 1.0 e 1.1 marcadas `[x]` foram feitas pelo CTO antes desta regra existir; mantêm-se, e o que falta delas é feito quando a Fase 1 for a fase activa.
 
 **Porta da Fase 0 — o que tem de estar `[x]` para abrir a Fase 1:**
-- 0.2: template, ADR-001, ADR-002, ADR-005, ADR-008, ADR-013, ADR-014 (os que dizem *antes da Fase 1* ou *antes da 1.2*);
+- 0.2: template, ADR-001, ADR-002, ADR-005, ADR-008, ADR-013, ADR-014, ADR-015 (os que dizem *antes da Fase 1* ou *antes da 1.2*);
 - 0.3: todas as tarefas (a das perguntas da §24.2 depende de respostas do CEO 👔).
 
 ---
@@ -105,6 +105,8 @@
 | 2026-11-26 | **MVP (Fase 2) = error tracking + alertas de erro + notificações email/Telegram/WhatsApp.** Métricas, incidentes completos, SSE, webhooks, Web Push, collectors e uptime passam para depois | Pedido do CEO: é onde dói mais e há menos oferta acessível localmente |
 | 2026-11-26 | **Ingestão compatível com o protocolo dos SDKs Sentry** (envelope + store, `X-Sentry-Auth`, DSN). O cliente migra mudando só o DSN | Remove a maior barreira de adopção (modelo GlitchTip) |
 | 2026-11-26 | **SDK Node próprio cancelado no MVP** (adiado para a Fase 10, só se houver necessidade). Os clientes usam os SDKs oficiais Sentry (MIT), em qualquer linguagem | Poupa semanas e dá logo suporte a JS, Python, PHP/Laravel, Java, .NET, Go, mobile |
+| 2026-11-26 | **SDK Go próprio logo a seguir ao go-live do MVP** (tarefa 2.10), por decisão do CEO (pergunta 12). O MVP lança com os SDKs Sentry, incluindo `sentry-go`, sem atraso | Decisão de produto do CEO; não atrasa o lançamento |
+| 2026-11-26 | **Respostas do CEO às 12 perguntas da §24.2** registadas em `docs/decisions/perguntas-ceo.md`: startups/PMEs, SaaS primeiro, plano único no beta, VPS, região única fora de Angola com parecer jurídico da APD, SLOs aprovados | Fecha a última tarefa 👔 da porta da Fase 0 |
 | 2026-11-26 | **Nunca copiar código do servidor Sentry** (licença FSL) nem usar a marca no branding. Implementamos o protocolo a partir da documentação pública; "compatível com SDKs Sentry" é uso nominativo aceitável | Risco legal |
 | 2026-11-26 | **WhatsApp só por API oficial** (WhatsApp Business Platform/Cloud API da Meta ou BSP). Proibido usar bibliotecas não oficiais (Baileys, whatsapp-web.js…) | Violação dos termos da Meta → banimento do número e risco de dados |
 | 2026-11-26 | **No MVP o "acknowledge" é o estado do issue** (`resolved`/`ignored`), sem entidade Incident; os incidentes completos chegam com os alertas de métricas (Fase 4) | Reduz o MVP sem perder o essencial |
@@ -142,11 +144,11 @@
 
 **Desenvolvedor (Gemini) — Fase 0 (activa):**
 1. Template de ADR e ADR-001, 002, 013, 014 (decisões já tomadas: formalizar) 🧭.
-2. ADR-005 (autenticação, API keys e DSN key) e ADR-008 (isolamento de tenant) 🧭.
+2. ADR-005 (autenticação, API keys e DSN key), ADR-008 (isolamento de tenant) e ADR-015 (envelope encryption) 🧭.
 3. Tarefas 0.3 pela ordem da lista: threat model, classificação de dados, SLOs, documento de perguntas da §24.2 para o CEO 👔, valores da §25.3, catálogo de erros, requisitos, fluxos, convenções Go, diagramas.
 4. Relatório da porta da Fase 0 para revisão do CTO.
 
-**Quando a Fase 1 for a activa:** push e CI verde no GitHub + branch protection; o que falta da 1.1; ADRs que contam para a porta da Fase 1 (003, 004, 009, 015, 017); depois 1.2 → 1.4.
+**Quando a Fase 1 for a activa:** push e CI verde no GitHub + branch protection; o que falta da 1.1; ADRs que contam para a porta da Fase 1 (003, 004, 009, 017); depois 1.2 → 1.4.
 
 ---
 
@@ -186,22 +188,22 @@
 ### 0.2 ADRs obrigatórios em `docs/adr/` (§24.1)
 > Formato: contexto, alternativas, decisão, consequências, riscos, data, responsável; protótipo/benchmark quando técnico. O texto em *itálico* diz que fase fica bloqueada sem o ADR. Todos os ADRs são 🧭.
 
-- [ ] Template `docs/adr/000-template.md`
-- [ ] ADR-001: Monorepo e monólito modular — *antes da Fase 1*
-- [ ] ADR-002: PostgreSQL para metadata — *antes da Fase 1*
+- [~] Template `docs/adr/000-template.md` — *escrito em `docs/fase0-adrs-base`; aguarda revisão do CTO 🧭*
+- [~] ADR-001: Monorepo e monólito modular — *antes da Fase 1; escrito em `docs/fase0-adrs-base`, aguarda revisão do CTO 🧭*
+- [~] ADR-002: PostgreSQL para metadata — *antes da Fase 1; escrito em `docs/fase0-adrs-base`, aguarda revisão do CTO 🧭*
 - [ ] ADR-003: TimescaleDB vs ClickHouse para telemetria (**incl. revisão da Timescale License**, §5.3) e onde vivem os `issue_events` — *antes da Fase 2*
 - [ ] ADR-004: Asynq vs River vs RabbitMQ/NATS; semântica de entrega (at-least-once + dedup) — *antes da Fase 2*
-- [ ] ADR-005: Autenticação (sessões, cookies, CSRF) e formato/hash das API keys, **incluindo o tipo "DSN key" pública** (2.1) — *antes da 1.2*
+- [~] ADR-005: Autenticação (sessões, cookies, CSRF) e formato/hash das API keys, **incluindo o tipo "DSN key" pública** (2.1) — *antes da 1.2; escrito em `docs/fase0-adr-005-auth-keys-dsn`, aguarda revisão do CTO 🧭*
 - [ ] ADR-006: Ingestão OpenTelemetry — *antes da Fase 9*
 - [ ] ADR-007: Modelo de métricas e cardinalidade — *antes da Fase 3*
-- [ ] ADR-008: Isolamento de tenant (aplicação + RLS) — *antes da 1.2*
+- [~] ADR-008: Isolamento de tenant (aplicação + RLS) — *antes da 1.2; escrito em `docs/fase0-adr-008-tenant-isolation`, aguarda revisão do CTO 🧭*
 - [ ] ADR-009: Retenção e quotas (eventos de erro/dia, mensagens WhatsApp/mês) — *antes da Fase 2*
 - [ ] ADR-010: Estratégia de deploy — *antes do go-live da Fase 2 (2.9)*
 - [ ] ADR-011: SSE vs WebSocket; autenticação do stream; fan-out entre réplicas — *antes da Fase 4*
 - [ ] ADR-012: Segurança dos collectors pull (BD e endpoints) — *antes da Fase 6*
-- [ ] ADR-013: Go como linguagem do backend — *já decidido; formalizar*
-- [ ] ADR-014: Acesso a dados (`sqlc` + `pgx` vs ORM) — *já decidido; formalizar*
-- [ ] ADR-015: Gestão de chaves de encriptação (envelope encryption, KEK/DEK, rotação) — *antes da Fase 2* (telefones, chat IDs e tokens de canais são encriptados)
+- [~] ADR-013: Go como linguagem do backend — *já decidido; formalizado em `docs/fase0-adrs-base`, aguarda revisão do CTO 🧭*
+- [~] ADR-014: Acesso a dados (`sqlc` + `pgx` vs ORM) — *já decidido; formalizado em `docs/fase0-adrs-base`, aguarda revisão do CTO 🧭*
+- [~] ADR-015: Gestão de chaves de encriptação (envelope encryption, KEK/DEK, rotação) — *antes da 1.2 (antecipado por decisão do CTO em 2026-11-26); escrito em `docs/fase0-adr-015-envelope-encryption`, aguarda revisão do CTO 🧭*
 - [ ] ADR-016: Armazenamento de "events" genéricos (`/ingest/events`) — *antes da Fase 3*
 - [ ] **ADR-017: Compatibilidade com o protocolo de ingestão dos SDKs Sentry** — *antes da Fase 2*. Tem de fixar:
   - versão do protocolo (`sentry_version=7`), endpoints (`/api/<project_id>/envelope/` e `/store/`) e formatos de autenticação (`X-Sentry-Auth`, query `sentry_key`);
@@ -214,16 +216,16 @@
 - [ ] **ADR-019: Fornecedor de email transaccional em produção** (Resend, Postmark, Amazon SES ou SMTP próprio) — *antes de 2.9*
 
 ### 0.3 Segurança, requisitos e convenções
-- [ ] Threat model formal em `docs/security/threat-model.md` (activos e ameaças da §11.7, STRIDE por fronteira de confiança) (§11.7)
-- [ ] Classificação de dados (público / interno / confidencial / segredo) e **lista de dados proibidos** de ingestão (§17.3, §20.1)
-- [ ] SLOs iniciais e metas de capacidade documentados (§14.4, §25.2), incl. **RPO/RTO** por classe de dado (§16.6)
-- [ ] Respostas escritas às 12 perguntas da §24.2 (público-alvo, modelo SaaS/self-hosted, volume, retenção default, alvo de deploy…) — o desenvolvedor prepara `docs/decisions/perguntas-ceo.md` com opções e recomendação; 👔 o CEO responde
-- [ ] Valores concretos da §25.3: política de passwords, duração de sessão, expiração padrão das keys, valores de rate limit, definição de severidades, regras de reabertura (incidente/issue)
-- [ ] **Catálogo de códigos de erro da API** + política de versionamento/depreciação (§25.3, §9.1) em `docs/api/`
-- [ ] Personas, user journeys e lista numerada de requisitos (`RF-001…`) com critério de aceitação (§25.1)
-- [ ] Fluxos completos: convite, recuperação de conta, eliminação de organização/projecto, **transferência de ownership** (§25.1)
-- [ ] Convenções Go escritas (erros com `%w`, `context` em toda a I/O, concorrência limitada, nomes de pacotes, testes table-driven) (§23)
-- [ ] Diagramas de arquitectura e fluxo actualizados em `docs/` (§20.1)
+- [~] Threat model formal em `docs/security/threat-model.md` (activos e ameaças da §11.7, STRIDE por fronteira de confiança) (§11.7) — *escrito em `docs/fase0-threat-model`; aprovado pelo CTO, aguarda merge*
+- [~] Classificação de dados (público / interno / confidencial / segredo) e **lista de dados proibidos** de ingestão (§17.3, §20.1) — *escrito em `docs/security/data-classification.md` (`docs/fase0-03-security-slos-ceo`); aguarda revisão/merge*
+- [~] SLOs iniciais e metas de capacidade documentados (§14.4, §25.2), incl. **RPO/RTO** por classe de dado (§16.6) — *escrito em `docs/architecture/slos-capacity.md` (`docs/fase0-03-security-slos-ceo`); aguarda revisão/merge*
+- [~] Respostas escritas às 12 perguntas da §24.2 (público-alvo, modelo SaaS/self-hosted, volume, retenção default, alvo de deploy…) — *`docs/decisions/perguntas-ceo.md` respondido pelo CEO em 2026-11-26; aguarda merge*
+- [~] Valores concretos da §25.3: política de passwords, duração de sessão, expiração padrão das keys, valores de rate limit, definição de severidades, regras de reabertura (incidente/issue) — *escrito em `docs/decisions/business-defaults.md` (`docs/fase0-03-security-slos-ceo`); aguarda revisão/merge*
+- [~] **Catálogo de códigos de erro da API** + política de versionamento/depreciação (§25.3, §9.1) em `docs/api/` — *escrito em `docs/api/error-catalog.md` (`docs/fase0-03-api-product-flows`); aguarda revisão/merge*
+- [~] Personas, user journeys e lista numerada de requisitos (`RF-001…`) com critério de aceitação (§25.1) — *escrito em `docs/product/requirements.md` (`docs/fase0-03-api-product-flows`); aguarda revisão/merge*
+- [~] Fluxos completos: convite, recuperação de conta, eliminação de organização/projecto, **transferência de ownership** (§25.1) — *escrito em `docs/product/critical-flows.md` (`docs/fase0-03-api-product-flows`); aguarda revisão/merge*
+- [~] Convenções Go escritas (erros com `%w`, `context` em toda a I/O, concorrência limitada, nomes de pacotes, testes table-driven) (§23) — *escrito em `docs/engineering/go-conventions.md` (`docs/fase0-03-go-conventions-diagrams`); aguarda revisão/merge*
+- [~] Diagramas de arquitectura e fluxo actualizados em `docs/` (§20.1) — *escrito em `docs/architecture/diagrams.md` (`docs/fase0-03-go-conventions-diagrams`); aguarda revisão/merge*
 
 ---
 
@@ -280,6 +282,7 @@
   - [x] Healthcheck do CLI com `context` e timeout (sem `client.Get` sem contexto)
 
 ### 1.2 Identity, Organizations, RBAC e Audit
+- [ ] `internal/platform/crypto`: envelope encryption AES-256-GCM (DEK por registo, KEK de `ENCRYPTION_KEY_FILE`, `key_id` para rotação) conforme ADR-015 *(antecipado da 2.0 por decisão do CTO em 2026-11-26 para encriptar segredos TOTP)* 🧭
 - [ ] Migration: `users`, `sessions`, `organizations`, `memberships`, `invitations`, `teams`, `team_members`, `audit_logs` (§8.2) com índices a começar pelo tenant e `UNIQUE` da §8.6
 - [ ] Padrão de repositório tenant-scoped (tipo `TenantID` obrigatório nas assinaturas) (§11.1)
 - [ ] `identity`: `POST /auth/register|login|logout|refresh`, sessões revogáveis, Argon2id, cookies `HttpOnly`/`Secure`/`SameSite` (§9.2, §10.3)
@@ -338,7 +341,6 @@
 - [ ] Fila durável (Asynq ou River, conforme ADR-004) + subcomando `vigia worker` com graceful shutdown, concorrência limitada e filas/limites **por tenant** (§4.4, §13.6)
 - [ ] Subcomando `vigia scheduler` (jobs periódicos: detecção de picos, digests, retenção) com lock distribuído (§4.4)
 - [ ] `internal/platform/redaction`: regras partilhadas de scrubbing (lista da §2.3) e lista de dados proibidos (§11.4, §17.3) + testes
-- [ ] `internal/platform/crypto`: envelope encryption AES-256-GCM (DEK por registo, KEK de `ENCRYPTION_KEY_FILE`, `key_id` para rotação) conforme ADR-015 🧭
 - [ ] `quotas` (mínimo do MVP): eventos de erro/dia por organização, mensagens WhatsApp/mês por organização, projectos e membros; contadores em Redis + `usage_aggregates`; `GET /organizations/:id/usage` e `/quotas` (§17.1, §9.2)
 - [ ] Serviços `worker` e `scheduler` no `compose.yaml`
 
@@ -472,6 +474,16 @@
   - [ ] Runbooks: API em baixo, BD em baixo, backlog da fila, falha de fornecedor de notificação, abuso de ingestão, compromisso de credencial, exposição de dados de tenant
   - [ ] Revisão de segurança 🧭 + scan de imagem (Trivy) e SBOM
   - [ ] 👔 Termos de serviço, política de privacidade e processo de pedidos de eliminação de dados publicados
+  - [ ] 👔 Parecer jurídico sobre a transferência de dados para fora de Angola (autorização da APD, Lei n.º 22/11) e, se necessário, pedido de autorização feito (pergunta 10)
+
+### 2.10 SDK Go próprio (logo a seguir ao go-live, por decisão do CEO) 🧭
+> Só começa depois de a 2.9 estar fechada; não bloqueia o lançamento. Os clientes Go continuam a poder usar o `sentry-go` com o DSN do Vigia.
+
+- [ ] ADR curto: âmbito do SDK Go (só erros e mensagens no início; métricas quando a Fase 3 existir), protocolo de envio (envelope compatível com a ingestão da 2.2) e o que o distingue do `sentry-go`
+- [ ] `sdks/go/` como módulo Go separado (`go.mod` próprio, sem depender de `internal/`): `Init(dsn)`, `CaptureException`, `CaptureMessage`, `Recover` (middleware `net/http`), `Flush`, `Close`
+- [ ] Redacção local, fila limitada em memória, batching, retry com backoff e respeito por `429` + `X-Sentry-Rate-Limits`; nunca bloqueia nem derruba a aplicação do cliente
+- [ ] Testes de contrato contra a ingestão real (`tests/contract/`), testes de resiliência (plataforma em baixo, lenta, 429) e `-race`
+- [ ] Publicação com versionamento semântico (tags `sdks/go/vX.Y.Z`), documentação e exemplos
 
 ---
 
@@ -614,7 +626,7 @@
 
 ## Fase 10 — Expansão (Pós-V1)
 
-- [ ] SDK próprio (Node ou outros) **só se** surgir necessidade que os SDKs Sentry não cobrem; se for feito: redacção local, fila limitada, batching, retry/backoff, non-blocking, testes de resiliência e publicação no npm com provenance (§19); host agent em Go (§3.3)
+- [ ] SDKs próprios adicionais (Node ou outros; o de Go está na 2.10) **só se** surgir necessidade que os SDKs Sentry não cobrem; se for feito: redacção local, fila limitada, batching, retry/backoff, non-blocking, testes de resiliência e publicação no npm com provenance (§19); host agent em Go (§3.3)
 - [ ] Session replay, profiling e performance compatíveis com SDKs Sentry, se houver procura
 - [ ] Evolução para ClickHouse se as medições provarem os limites do TimescaleDB (§4.2, §8.5)
 - [ ] SSO/OIDC/SAML enterprise; push mobile (FCM/APNs) com apps nativas; integrações nativas Slack/Teams (§3.3, §12)
