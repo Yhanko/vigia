@@ -431,6 +431,83 @@ func TestDatabaseIntegration(t *testing.T) {
 				t.Fatalf("expected SQLSTATE 42501 for %q, got: %v", stmt, err)
 			}
 		}
+
+		// Seed an invitation in Org A to test lookup_invitation_by_token_hash.
+		const invA = "60000000-0000-4000-8000-000000000001"
+		invHash := make([]byte, 32)
+		if _, err := rand.Read(invHash); err != nil {
+			t.Fatal(err)
+		}
+		if err := WithTx(ctx, appPool, func(tx pgx.Tx) error {
+			if _, err := tx.Exec(ctx, "SELECT set_config('app.organization_id', $1, true)", orgA); err != nil {
+				return err
+			}
+			_, err := tx.Exec(ctx, `
+				INSERT INTO invitations (id, organization_id, email, role, token_hash, invited_by, expires_at)
+				VALUES ($1, $2, 'carol@example.com', 'member', $3, $4, now() + interval '7 days')
+			`, invA, orgA, invHash, userA)
+			return err
+		}); err != nil {
+			t.Fatalf("seed invitation: %v", err)
+		}
+
+		// SECURITY DEFINER: list_user_organizations returns ONLY userA's active org (Org A, never Org B).
+		var gotOrgID, gotName, gotSlug, gotOrgStatus, gotRole, gotMemStatus string
+		if err := appPool.QueryRow(ctx,
+			"SELECT organization_id, name, slug, org_status, role, membership_status FROM list_user_organizations($1)",
+			userA,
+		).Scan(&gotOrgID, &gotName, &gotSlug, &gotOrgStatus, &gotRole, &gotMemStatus); err != nil {
+			t.Fatalf("list_user_organizations(userA): %v", err)
+		}
+		if gotOrgID != orgA || gotSlug != "org-a" || gotRole != "owner" {
+			t.Fatalf("unexpected list_user_organizations result: org=%s slug=%s role=%s", gotOrgID, gotSlug, gotRole)
+		}
+
+		// SECURITY DEFINER: lookup_invitation_by_token_hash returns ONLY (invitation_id, organization_id).
+		var gotInvID, gotInvOrgID string
+		if err := appPool.QueryRow(ctx,
+			"SELECT invitation_id, organization_id FROM lookup_invitation_by_token_hash($1)",
+			invHash,
+		).Scan(&gotInvID, &gotInvOrgID); err != nil {
+			t.Fatalf("lookup_invitation_by_token_hash: %v", err)
+		}
+		if gotInvID != invA || gotInvOrgID != orgA {
+			t.Fatalf("unexpected invitation lookup: inv=%s org=%s, want (%s, %s)", gotInvID, gotInvOrgID, invA, orgA)
+		}
+
+		// Verify ownership = vigia_definer (not vigia) and PUBLIC has NO EXECUTE on both functions.
+		adminPool, err := NewPool(ctx, dsn, PoolOptions{MaxConns: 2, StatementTimeout: 5 * time.Second})
+		if err != nil {
+			t.Fatalf("admin pool: %v", err)
+		}
+		defer adminPool.Close()
+
+		for _, sig := range []string{
+			"public.list_user_organizations(uuid)",
+			"public.lookup_invitation_by_token_hash(bytea)",
+		} {
+			var owner string
+			var publicExec, appExec bool
+			if err := adminPool.QueryRow(ctx, `
+				SELECT r.rolname,
+				       has_function_privilege('public', $1::regprocedure, 'EXECUTE'),
+				       has_function_privilege('vigia_app', $1::regprocedure, 'EXECUTE')
+				FROM pg_proc p
+				JOIN pg_roles r ON r.oid = p.proowner
+				WHERE p.oid = $1::regprocedure
+			`, sig).Scan(&owner, &publicExec, &appExec); err != nil {
+				t.Fatalf("inspect function %s: %v", sig, err)
+			}
+			if owner != "vigia_definer" {
+				t.Fatalf("function %s owner = %q, want vigia_definer", sig, owner)
+			}
+			if publicExec {
+				t.Fatalf("function %s grants EXECUTE to PUBLIC", sig)
+			}
+			if !appExec {
+				t.Fatalf("function %s missing EXECUTE for vigia_app", sig)
+			}
+		}
 	})
 }
 
