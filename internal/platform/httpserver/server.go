@@ -1,5 +1,6 @@
-// Package httpserver assembles the HTTP API router, middleware stack,
-// operational health endpoints, and JSON error conventions (README §§9, 11.5, 14.2).
+// Package httpserver assembles the public HTTP API router, the internal admin
+// operational router (/health/live, /health/ready, future /metrics), middleware
+// stacks, and JSON error conventions (README §§9, 11.5, 14.2).
 package httpserver
 
 import (
@@ -18,7 +19,7 @@ type ReadinessCheck struct {
 	Check func(ctx context.Context) error
 }
 
-// Options configures the HTTP server and its router.
+// Options configures the public HTTP API server and its router.
 type Options struct {
 	Port        int
 	Version     string
@@ -29,11 +30,20 @@ type Options struct {
 	// will apply their own limit on their route group).
 	MaxBodyBytes int64
 	// HSTS enables Strict-Transport-Security; set only when served over TLS (production).
+	HSTS bool
+}
+
+// AdminOptions configures the internal operational listener (ADMIN_PORT),
+// exposing /health/live, /health/ready, and future /metrics (README §9.3).
+type AdminOptions struct {
+	Port            int
+	Logger          *slog.Logger
 	HSTS            bool
 	ReadinessChecks []ReadinessCheck
 }
 
-// NewHandler constructs the chi router with operational and /api/v1 routes.
+// NewHandler constructs the public chi router with /api/v1 routes.
+// Operational endpoints (/health/*) are intentionally NOT mounted here.
 func NewHandler(opts Options) http.Handler {
 	r := chi.NewRouter()
 
@@ -54,7 +64,38 @@ func NewHandler(opts Options) http.Handler {
 		WriteError(w, req, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "The HTTP method is not allowed for this endpoint.")
 	})
 
-	// Operational endpoints outside /api/v1 (README §9.3).
+	// Versioned product API (README §9).
+	r.Route("/api/v1", func(api chi.Router) {
+		api.Get("/status", func(w http.ResponseWriter, _ *http.Request) {
+			WriteJSON(w, http.StatusOK, map[string]string{
+				"service": "vigia",
+				"status":  "ok",
+				"version": opts.Version,
+				"commit":  opts.Commit,
+			})
+		})
+	})
+
+	return r
+}
+
+// NewAdminHandler constructs the internal operational router (README §9.3).
+// It applies request ID, security headers, recoverer, and logging, without CORS.
+func NewAdminHandler(opts AdminOptions) http.Handler {
+	r := chi.NewRouter()
+
+	r.Use(RequestIDMiddleware)
+	r.Use(SecurityHeadersMiddleware(opts.HSTS))
+	r.Use(RecovererMiddleware(opts.Logger))
+	r.Use(RequestLoggerMiddleware(opts.Logger))
+
+	r.NotFound(func(w http.ResponseWriter, req *http.Request) {
+		WriteError(w, req, http.StatusNotFound, "RESOURCE_NOT_FOUND", "The requested resource was not found.")
+	})
+	r.MethodNotAllowed(func(w http.ResponseWriter, req *http.Request) {
+		WriteError(w, req, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "The HTTP method is not allowed for this endpoint.")
+	})
+
 	r.Get("/health/live", func(w http.ResponseWriter, _ *http.Request) {
 		WriteJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
@@ -92,29 +133,26 @@ func NewHandler(opts Options) http.Handler {
 		})
 	})
 
-	// Versioned product API (README §9).
-	r.Route("/api/v1", func(api chi.Router) {
-		api.Get("/status", func(w http.ResponseWriter, _ *http.Request) {
-			WriteJSON(w, http.StatusOK, map[string]string{
-				"service": "vigia",
-				"status":  "ok",
-				"version": opts.Version,
-				"commit":  opts.Commit,
-			})
-		})
-	})
-
 	return r
 }
 
-// New creates an http.Server with explicit timeouts (never use zero defaults).
-func New(opts Options) *http.Server {
+func newServer(port int, handler http.Handler) *http.Server {
 	return &http.Server{
-		Addr:              fmt.Sprintf(":%d", opts.Port),
-		Handler:           NewHandler(opts),
+		Addr:              fmt.Sprintf(":%d", port),
+		Handler:           handler,
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      15 * time.Second,
 		IdleTimeout:       60 * time.Second,
 	}
+}
+
+// New creates the public API http.Server with explicit timeouts.
+func New(opts Options) *http.Server {
+	return newServer(opts.Port, NewHandler(opts))
+}
+
+// NewAdmin creates the internal admin http.Server with the same explicit timeouts.
+func NewAdmin(opts AdminOptions) *http.Server {
+	return newServer(opts.Port, NewAdminHandler(opts))
 }

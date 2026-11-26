@@ -1691,6 +1691,7 @@ docker compose down -v                             # pára e APAGA os volumes
 ```bash
 APP_ENV=development
 PORT=8080
+ADMIN_PORT=9090
 APP_URL=http://127.0.0.1:8080
 LOG_LEVEL=info
 

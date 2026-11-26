@@ -24,8 +24,8 @@ func TestRoutesAndErrorEnvelopes(t *testing.T) {
 		wantStatus int
 		wantCode   string
 	}{
-		{"liveness", http.MethodGet, "/health/live", http.StatusOK, ""},
-		{"readiness without deps", http.MethodGet, "/health/ready", http.StatusOK, ""},
+		{"liveness not exposed on public port", http.MethodGet, "/health/live", http.StatusNotFound, "RESOURCE_NOT_FOUND"},
+		{"readiness not exposed on public port", http.MethodGet, "/health/ready", http.StatusNotFound, "RESOURCE_NOT_FOUND"},
 		{"api v1 status", http.MethodGet, "/api/v1/status", http.StatusOK, ""},
 		{"not found envelope", http.MethodGet, "/api/v1/does-not-exist", http.StatusNotFound, "RESOURCE_NOT_FOUND"},
 		{"method not allowed envelope", http.MethodPost, "/api/v1/status", http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED"},
@@ -63,9 +63,27 @@ func TestRoutesAndErrorEnvelopes(t *testing.T) {
 	}
 }
 
-func TestReadinessChecks(t *testing.T) {
+func TestAdminHandlerAndReadinessChecks(t *testing.T) {
+	t.Run("liveness and security headers without CORS", func(t *testing.T) {
+		h := NewAdminHandler(AdminOptions{})
+		req := httptest.NewRequest(http.MethodGet, "/health/live", nil)
+		req.Header.Set("Origin", "http://127.0.0.1:5173")
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200", rec.Code)
+		}
+		if rec.Header().Get("X-Content-Type-Options") != "nosniff" || rec.Header().Get("X-Request-Id") == "" {
+			t.Fatalf("admin response missing security headers or X-Request-Id")
+		}
+		if got := rec.Header().Get("Access-Control-Allow-Origin"); got != "" {
+			t.Fatalf("admin handler must not emit CORS headers, got %q", got)
+		}
+	})
+
 	t.Run("all healthy", func(t *testing.T) {
-		h := NewHandler(Options{
+		h := NewAdminHandler(AdminOptions{
 			ReadinessChecks: []ReadinessCheck{
 				{Name: "postgres", Check: func(context.Context) error { return nil }},
 				{Name: "redis", Check: func(context.Context) error { return nil }},
@@ -79,7 +97,7 @@ func TestReadinessChecks(t *testing.T) {
 	})
 
 	t.Run("dependency failure returns 503 without leaking details", func(t *testing.T) {
-		h := NewHandler(Options{
+		h := NewAdminHandler(AdminOptions{
 			ReadinessChecks: []ReadinessCheck{
 				{Name: "postgres", Check: func(context.Context) error { return nil }},
 				{Name: "redis", Check: func(context.Context) error { return errors.New("secret-password-in-err") }},
@@ -92,6 +110,13 @@ func TestReadinessChecks(t *testing.T) {
 		}
 		if strings.Contains(rec.Body.String(), "secret-password-in-err") {
 			t.Fatalf("readiness response leaked internal error: %s", rec.Body.String())
+		}
+	})
+
+	t.Run("admin server uses explicit timeouts", func(t *testing.T) {
+		srv := NewAdmin(AdminOptions{Port: 9090})
+		if srv.ReadHeaderTimeout == 0 || srv.ReadTimeout == 0 || srv.WriteTimeout == 0 || srv.IdleTimeout == 0 {
+			t.Fatalf("admin server must configure all explicit timeouts: %+v", srv)
 		}
 	})
 }

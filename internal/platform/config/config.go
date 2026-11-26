@@ -44,10 +44,11 @@ func (s Secret) IsEmpty() bool { return len(s) == 0 }
 
 // Config holds the validated runtime configuration for a Vigia process.
 type Config struct {
-	AppEnv   string
-	Port     int
-	AppURL   string
-	LogLevel string
+	AppEnv    string
+	Port      int
+	AdminPort int
+	AppURL    string
+	LogLevel  string
 
 	DatabaseURL              string
 	DatabasePassword         Secret
@@ -87,6 +88,7 @@ func LoadFrom(getenv func(string) string) (Config, error) {
 	cfg := Config{
 		AppEnv:                   "development",
 		Port:                     8080,
+		AdminPort:                9090,
 		AppURL:                   "http://127.0.0.1:8080",
 		LogLevel:                 "info",
 		DatabaseMaxConns:         DefaultDatabaseMaxConns,
@@ -114,6 +116,17 @@ func LoadFrom(getenv func(string) string) (Config, error) {
 			return Config{}, fmt.Errorf("invalid PORT %q: must be an integer between 1 and 65535", v)
 		}
 		cfg.Port = p
+	}
+
+	if v := strings.TrimSpace(getenv("ADMIN_PORT")); v != "" {
+		p, err := strconv.Atoi(v)
+		if err != nil || p < 1 || p > 65535 {
+			return Config{}, fmt.Errorf("invalid ADMIN_PORT %q: must be an integer between 1 and 65535", v)
+		}
+		cfg.AdminPort = p
+	}
+	if cfg.AdminPort == cfg.Port {
+		return Config{}, fmt.Errorf("ADMIN_PORT (%d) must differ from PORT (%d)", cfg.AdminPort, cfg.Port)
 	}
 
 	if v := strings.TrimSpace(getenv("APP_URL")); v != "" {

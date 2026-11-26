@@ -130,35 +130,51 @@ func runAPI() error {
 	}
 
 	srv := httpserver.New(httpserver.Options{
-		Port:            cfg.Port,
-		Version:         version,
-		Commit:          commit,
+		Port:         cfg.Port,
+		Version:      version,
+		Commit:       commit,
+		Logger:       logger,
+		CORSOrigins:  cfg.CORSOrigins,
+		MaxBodyBytes: cfg.APIMaxBodyBytes,
+		HSTS:         cfg.AppEnv == "production",
+	})
+	adminSrv := httpserver.NewAdmin(httpserver.AdminOptions{
+		Port:            cfg.AdminPort,
 		Logger:          logger,
-		CORSOrigins:     cfg.CORSOrigins,
-		MaxBodyBytes:    cfg.APIMaxBodyBytes,
 		HSTS:            cfg.AppEnv == "production",
 		ReadinessChecks: checks,
 	})
 
-	errCh := make(chan error, 1)
+	errCh := make(chan error, 2)
 	go func() {
 		logger.Info("API listening", "addr", srv.Addr, "version", version, "commit", commit)
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			errCh <- err
+			errCh <- fmt.Errorf("public api server: %w", err)
 		}
-		close(errCh)
+	}()
+	go func() {
+		logger.Info("admin server listening", "addr", adminSrv.Addr)
+		if err := adminSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			errCh <- fmt.Errorf("admin server: %w", err)
+		}
 	}()
 
+	var runErr error
 	select {
 	case err := <-errCh:
-		return err
+		runErr = err
+		logger.Error("server failed, shutting down both listeners", "error", err)
 	case <-ctx.Done():
+		logger.Info("shutting down API and admin listeners")
 	}
 
-	logger.Info("shutting down API")
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	return srv.Shutdown(shutdownCtx)
+	shutdownErr := errors.Join(
+		srv.Shutdown(shutdownCtx),
+		adminSrv.Shutdown(shutdownCtx),
+	)
+	return errors.Join(runErr, shutdownErr)
 }
 
 func runMigrate(action string) error {
@@ -199,7 +215,7 @@ func runHealthcheck() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("http://127.0.0.1:%d/health/live", cfg.Port), nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("http://127.0.0.1:%d/health/live", cfg.AdminPort), nil)
 	if err != nil {
 		return fmt.Errorf("healthcheck request: %w", err)
 	}

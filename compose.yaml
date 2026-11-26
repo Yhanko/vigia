@@ -86,6 +86,7 @@ services:
     environment:
       APP_ENV: development
       PORT: "8080"
+      ADMIN_PORT: "9090"
       LOG_LEVEL: info
       DATABASE_URL: postgresql://vigia@db:5432/vigia?sslmode=disable
       DATABASE_PASSWORD_FILE: /run/secrets/postgres_password

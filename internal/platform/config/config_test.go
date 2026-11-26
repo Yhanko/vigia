@@ -39,7 +39,8 @@ func TestLoadFromDefaultsAndSecretFile(t *testing.T) {
 	}
 
 	env := stagingEnv(t, dir)
-	env["PORT"] = "9090"
+	env["PORT"] = "8081"
+	env["ADMIN_PORT"] = "9091"
 	env["LOG_LEVEL"] = "debug"
 	env["DATABASE_PASSWORD_FILE"] = dbPassFile
 	env["CORS_ORIGINS"] = "http://127.0.0.1:5173, https://vigia.example.com"
@@ -49,7 +50,7 @@ func TestLoadFromDefaultsAndSecretFile(t *testing.T) {
 		t.Fatalf("LoadFrom() error = %v", err)
 	}
 
-	if cfg.AppEnv != "staging" || cfg.Port != 9090 || cfg.LogLevel != "debug" {
+	if cfg.AppEnv != "staging" || cfg.Port != 8081 || cfg.AdminPort != 9091 || cfg.LogLevel != "debug" {
 		t.Fatalf("unexpected cfg basics: %+v", cfg)
 	}
 	if len(cfg.CORSOrigins) != 2 || cfg.CORSOrigins[1] != "https://vigia.example.com" {
@@ -72,6 +73,10 @@ func TestLoadFromValidationErrors(t *testing.T) {
 	}{
 		{"invalid port", map[string]string{"PORT": "70000"}},
 		{"non-numeric port", map[string]string{"PORT": "abc"}},
+		{"invalid admin port", map[string]string{"ADMIN_PORT": "70000"}},
+		{"non-numeric admin port", map[string]string{"ADMIN_PORT": "abc"}},
+		{"admin port equals public port", map[string]string{"PORT": "8080", "ADMIN_PORT": "8080"}},
+		{"public port equals default admin port", map[string]string{"PORT": "9090"}},
 		{"invalid env", map[string]string{"APP_ENV": "invalid"}},
 		{"invalid log level", map[string]string{"LOG_LEVEL": "verbose"}},
 		{"invalid database url", map[string]string{"DATABASE_URL": "http://localhost:5432"}},

@@ -261,7 +261,7 @@
   - [x] `DecodeJSON` estrito (Content-Type, `DisallowUnknownFields`, um único objecto, 413 em excesso, sem eco de campos) + testes
   - [x] Recoverer deixa passar `http.ErrAbortHandler` + teste
   - [ ] Paginação por cursor (`?limit=&cursor=`), middleware `Idempotency-Key`, headers `RateLimit-*`/`Retry-After` (§9.1) — *fazer com o primeiro endpoint que precisa deles (1.2)*
-  - [ ] `/health/ready` e futuro `/metrics` num **listener interno separado** (`ADMIN_PORT`) em vez da porta pública (§9.3)
+  - [x] `/health/ready` e futuro `/metrics` num **listener interno separado** (`ADMIN_PORT`) em vez da porta pública (§9.3)
 - [~] Configuração do `sqlc` (`sqlc.yaml` + `queries/`) (§5.1)
   - [ ] `queries/` ainda está vazio: primeira query real na 1.2 + `//go:generate sqlc generate` + `sqlc diff` no CI
 - [~] Contrato base `api/openapi.yaml` (§5.1, §9)

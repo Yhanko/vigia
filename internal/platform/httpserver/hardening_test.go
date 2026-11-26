@@ -26,7 +26,7 @@ func TestSecurityHeaders(t *testing.T) {
 
 	t.Run("HSTS when enabled", func(t *testing.T) {
 		rec := httptest.NewRecorder()
-		NewHandler(Options{HSTS: true}).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/health/live", nil))
+		NewHandler(Options{HSTS: true}).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/status", nil))
 		if got := rec.Header().Get("Strict-Transport-Security"); !strings.HasPrefix(got, "max-age=") {
 			t.Fatalf("HSTS = %q, want max-age", got)
 		}
