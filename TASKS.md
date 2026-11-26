@@ -105,6 +105,8 @@
 | 2026-11-26 | **MVP (Fase 2) = error tracking + alertas de erro + notificações email/Telegram/WhatsApp.** Métricas, incidentes completos, SSE, webhooks, Web Push, collectors e uptime passam para depois | Pedido do CEO: é onde dói mais e há menos oferta acessível localmente |
 | 2026-11-26 | **Ingestão compatível com o protocolo dos SDKs Sentry** (envelope + store, `X-Sentry-Auth`, DSN). O cliente migra mudando só o DSN | Remove a maior barreira de adopção (modelo GlitchTip) |
 | 2026-11-26 | **SDK Node próprio cancelado no MVP** (adiado para a Fase 10, só se houver necessidade). Os clientes usam os SDKs oficiais Sentry (MIT), em qualquer linguagem | Poupa semanas e dá logo suporte a JS, Python, PHP/Laravel, Java, .NET, Go, mobile |
+| 2026-11-26 | **SDK Go próprio logo a seguir ao go-live do MVP** (tarefa 2.10), por decisão do CEO (pergunta 12). O MVP lança com os SDKs Sentry, incluindo `sentry-go`, sem atraso | Decisão de produto do CEO; não atrasa o lançamento |
+| 2026-11-26 | **Respostas do CEO às 12 perguntas da §24.2** registadas em `docs/decisions/perguntas-ceo.md`: startups/PMEs, SaaS primeiro, plano único no beta, VPS, região única fora de Angola com parecer jurídico da APD, SLOs aprovados | Fecha a última tarefa 👔 da porta da Fase 0 |
 | 2026-11-26 | **Nunca copiar código do servidor Sentry** (licença FSL) nem usar a marca no branding. Implementamos o protocolo a partir da documentação pública; "compatível com SDKs Sentry" é uso nominativo aceitável | Risco legal |
 | 2026-11-26 | **WhatsApp só por API oficial** (WhatsApp Business Platform/Cloud API da Meta ou BSP). Proibido usar bibliotecas não oficiais (Baileys, whatsapp-web.js…) | Violação dos termos da Meta → banimento do número e risco de dados |
 | 2026-11-26 | **No MVP o "acknowledge" é o estado do issue** (`resolved`/`ignored`), sem entidade Incident; os incidentes completos chegam com os alertas de métricas (Fase 4) | Reduz o MVP sem perder o essencial |
@@ -217,7 +219,7 @@
 - [~] Threat model formal em `docs/security/threat-model.md` (activos e ameaças da §11.7, STRIDE por fronteira de confiança) (§11.7) — *escrito em `docs/fase0-threat-model`; aprovado pelo CTO, aguarda merge*
 - [~] Classificação de dados (público / interno / confidencial / segredo) e **lista de dados proibidos** de ingestão (§17.3, §20.1) — *escrito em `docs/security/data-classification.md` (`docs/fase0-03-security-slos-ceo`); aguarda revisão/merge*
 - [~] SLOs iniciais e metas de capacidade documentados (§14.4, §25.2), incl. **RPO/RTO** por classe de dado (§16.6) — *escrito em `docs/architecture/slos-capacity.md` (`docs/fase0-03-security-slos-ceo`); aguarda revisão/merge*
-- [~] Respostas escritas às 12 perguntas da §24.2 (público-alvo, modelo SaaS/self-hosted, volume, retenção default, alvo de deploy…) — *preparado `docs/decisions/perguntas-ceo.md` (`docs/fase0-03-security-slos-ceo`); aguarda respostas do CEO 👔*
+- [~] Respostas escritas às 12 perguntas da §24.2 (público-alvo, modelo SaaS/self-hosted, volume, retenção default, alvo de deploy…) — *`docs/decisions/perguntas-ceo.md` respondido pelo CEO em 2026-11-26; aguarda merge*
 - [~] Valores concretos da §25.3: política de passwords, duração de sessão, expiração padrão das keys, valores de rate limit, definição de severidades, regras de reabertura (incidente/issue) — *escrito em `docs/decisions/business-defaults.md` (`docs/fase0-03-security-slos-ceo`); aguarda revisão/merge*
 - [~] **Catálogo de códigos de erro da API** + política de versionamento/depreciação (§25.3, §9.1) em `docs/api/` — *escrito em `docs/api/error-catalog.md` (`docs/fase0-03-api-product-flows`); aguarda revisão/merge*
 - [~] Personas, user journeys e lista numerada de requisitos (`RF-001…`) com critério de aceitação (§25.1) — *escrito em `docs/product/requirements.md` (`docs/fase0-03-api-product-flows`); aguarda revisão/merge*
@@ -472,6 +474,16 @@
   - [ ] Runbooks: API em baixo, BD em baixo, backlog da fila, falha de fornecedor de notificação, abuso de ingestão, compromisso de credencial, exposição de dados de tenant
   - [ ] Revisão de segurança 🧭 + scan de imagem (Trivy) e SBOM
   - [ ] 👔 Termos de serviço, política de privacidade e processo de pedidos de eliminação de dados publicados
+  - [ ] 👔 Parecer jurídico sobre a transferência de dados para fora de Angola (autorização da APD, Lei n.º 22/11) e, se necessário, pedido de autorização feito (pergunta 10)
+
+### 2.10 SDK Go próprio (logo a seguir ao go-live, por decisão do CEO) 🧭
+> Só começa depois de a 2.9 estar fechada; não bloqueia o lançamento. Os clientes Go continuam a poder usar o `sentry-go` com o DSN do Vigia.
+
+- [ ] ADR curto: âmbito do SDK Go (só erros e mensagens no início; métricas quando a Fase 3 existir), protocolo de envio (envelope compatível com a ingestão da 2.2) e o que o distingue do `sentry-go`
+- [ ] `sdks/go/` como módulo Go separado (`go.mod` próprio, sem depender de `internal/`): `Init(dsn)`, `CaptureException`, `CaptureMessage`, `Recover` (middleware `net/http`), `Flush`, `Close`
+- [ ] Redacção local, fila limitada em memória, batching, retry com backoff e respeito por `429` + `X-Sentry-Rate-Limits`; nunca bloqueia nem derruba a aplicação do cliente
+- [ ] Testes de contrato contra a ingestão real (`tests/contract/`), testes de resiliência (plataforma em baixo, lenta, 429) e `-race`
+- [ ] Publicação com versionamento semântico (tags `sdks/go/vX.Y.Z`), documentação e exemplos
 
 ---
 
@@ -614,7 +626,7 @@
 
 ## Fase 10 — Expansão (Pós-V1)
 
-- [ ] SDK próprio (Node ou outros) **só se** surgir necessidade que os SDKs Sentry não cobrem; se for feito: redacção local, fila limitada, batching, retry/backoff, non-blocking, testes de resiliência e publicação no npm com provenance (§19); host agent em Go (§3.3)
+- [ ] SDKs próprios adicionais (Node ou outros; o de Go está na 2.10) **só se** surgir necessidade que os SDKs Sentry não cobrem; se for feito: redacção local, fila limitada, batching, retry/backoff, non-blocking, testes de resiliência e publicação no npm com provenance (§19); host agent em Go (§3.3)
 - [ ] Session replay, profiling e performance compatíveis com SDKs Sentry, se houver procura
 - [ ] Evolução para ClickHouse se as medições provarem os limites do TimescaleDB (§4.2, §8.5)
 - [ ] SSO/OIDC/SAML enterprise; push mobile (FCM/APNs) com apps nativas; integrações nativas Slack/Teams (§3.3, §12)

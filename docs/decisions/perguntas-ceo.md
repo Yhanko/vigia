@@ -1,6 +1,7 @@
 # Perguntas ao CEO — Decisões de Produto, Negócio e Operação (§24.2)
 
 - **Data:** 2026-11-26
+- **Estado:** **Respondido pelo CEO em 2026-11-26** (sessão com o CTO)
 - **Preparado por:** Desenvolvedor (Gemini)
 - **Decisor:** 👔 CEO (Yhanko)
 - **Referências:** README §24.2; TASKS 0.3 (porta da Fase 0)
@@ -15,7 +16,7 @@
 - **B) (Recomendado)** Startups e PMEs tecnológicas em Angola/PALOP (equipas de 2–20 developers que precisam de monitorizar apps em produção com custos previsíveis em moeda/realidade local e alertas no WhatsApp/Telegram)
 - **C)** Grandes empresas / bancos (enterprise com requisitos on-prem e SLA contratual pesado)
 
-- **Decisão do CEO:** *(por preencher)*
+- **Decisão do CEO:** **B — Startups e PMEs tecnológicas em Angola/PALOP.** *(2026-11-26)*
 
 ---
 
@@ -25,7 +26,7 @@
 - **B)** Apenas uso interno da Yhanko inicialmente
 - **C)** Self-hosted open-source/comercial desde o dia 1
 
-- **Decisão do CEO:** *(por preencher)*
+- **Decisão do CEO:** **A — SaaS multi-tenant primeiro**, gerido pela Yhanko; o Docker Compose mantém-se limpo para self-hosted dedicado em contratos futuros. *(2026-11-26)*
 
 ---
 
@@ -35,7 +36,7 @@
 - **B)** Piloto fechado pequeno (≤ 10 organizações, < 500 mil eventos/mês)
 - **C)** Escala elevada desde o dia 1 (> 50 milhões de eventos/mês — exige investimento maior em infra)
 
-- **Decisão do CEO:** *(por preencher)*
+- **Decisão do CEO:** **A — Até 50 organizações e 1–5 milhões de eventos de erro/mês** (média ~2 ev/s, burst 250 ev/s, ~35–40 GB em disco com 30 dias). *(2026-11-26)*
 
 ---
 
@@ -48,7 +49,7 @@
   - `audit_logs`: mínimo **180 dias** (separado da telemetria)
 - **B)** Plano único simples durante o beta (30 dias, 50 000 eventos/mês por org)
 
-- **Decisão do CEO:** *(por preencher)*
+- **Decisão do CEO:** **B — Plano único durante o beta**, com os limites: **30 dias** de retenção de `issue_events`, **100 000 eventos/mês**, **10 projectos**, **15 membros**, **200 mensagens WhatsApp/mês** por organização; `audit_logs` com retenção mínima de **180 dias**. Planos pagos definidos depois do beta, com dados reais de uso (a faturação automática continua fora da V1). *(2026-11-26)*
 
 ---
 
@@ -58,7 +59,7 @@
 - **B)** Cloud gerida (GCP Cloud Run / AWS ECS + RDS + ElastiCache) — custo mensal mais elevado
 - **C)** Servidor on-premises da Yhanko
 
-- **Decisão do CEO:** *(por preencher)*
+- **Decisão do CEO:** **A — VPS Linux dedicado** com Docker Compose endurecido, TLS automático (Caddy/Traefik) e backups encriptados em object storage S3-compatível. *(2026-11-26)*
 
 ---
 
@@ -67,7 +68,7 @@
 - **A) (Recomendado)** Endpoint OTLP-HTTP nativo no Vigia (cliente envia directo ou via o seu OTel Collector se já tiver); não gerir collectors em infraestrutura de terceiros
 - **B)** Fornecer collector pré-configurado gerido pelo Vigia
 
-- **Decisão do CEO:** *(por preencher)*
+- **Decisão do CEO:** **A — Endpoint OTLP-HTTP nativo** no Vigia (cliente envia directo ou pelo seu próprio OTel Collector). *(2026-11-26)*
 
 ---
 
@@ -76,7 +77,7 @@
 - **A) (Recomendado)** Scripts leves / adaptador compatível com Prometheus exporters existentes (ex.: `node_exporter`) antes de investir num agent próprio em Go (que fica para a Fase 10 se houver procura)
 - **B)** Construir um agent Go próprio logo na Fase 3
 
-- **Decisão do CEO:** *(por preencher)*
+- **Decisão do CEO:** **A — Exporters Prometheus existentes** (ex.: `node_exporter`) e scripts leves; agent próprio em Go só na Fase 10, se houver procura. *(2026-11-26)*
 
 ---
 
@@ -85,7 +86,7 @@
 - **A) (Recomendado)** Apenas **Email + Telegram + WhatsApp** no MVP (lançar com Email + Telegram caso a verificação da Meta atrase, conforme ADR-018); SMS fica opcional na Fase 5 apenas se clientes pedirem
 - **B)** Incluir SMS já no MVP
 
-- **Decisão do CEO:** *(por preencher)*
+- **Decisão do CEO:** **A — Sem SMS no MVP:** email + Telegram + WhatsApp (email + Telegram se a verificação da Meta atrasar); SMS opcional na Fase 5, só a pedido de clientes. *(2026-11-26)*
 
 ---
 
@@ -94,7 +95,7 @@
 - **Proposta (Recomendado):** proibir por defeito credenciais, cartões (Luhn), BI/NIF/passaporte, request bodies e IPs de utilizadores finais (detalhado em `docs/security/data-classification.md`); publicar Termos de Serviço e Política de Privacidade em conformidade com a **Lei n.º 22/11 (Protecção de Dados Pessoais de Angola)** antes do go-live da Fase 2.9.
 - **Questão:** existe algum requisito sectorial adicional (ex.: BNA / banca) previsto para os primeiros clientes?
 
-- **Decisão do CEO:** *(por preencher)*
+- **Decisão do CEO:** **Sem requisitos sectoriais no MVP:** clientes iniciais sem regulação sectorial (banca/BNA, saúde); aplica-se a política de dados proibidos de `docs/security/data-classification.md` e a Lei n.º 22/11. Clientes regulados exigem análise própria antes de serem aceites. *(2026-11-26)*
 
 ---
 
@@ -104,14 +105,14 @@
   > **⚠ Nota legal (Lei n.º 22/11):** a transferência internacional de dados pessoais para fora de Angola pode exigir **autorização prévia da Agência de Protecção de Dados (APD)**. Confirmar com jurista antes do go-live (Fase 2.9).
 - **B)** Exigência de alojamento físico em território angolano desde o MVP
 
-- **Decisão do CEO:** *(por preencher)*
+- **Decisão do CEO:** **A — Região única fora de Angola** (Europa ou África do Sul), **com parecer jurídico sobre a autorização da APD (Lei n.º 22/11) antes do go-live da Fase 2.9**; eliminação com 14 dias de graça e purge definitivo; export JSON na Fase 8. *(2026-11-26)*
 
 ---
 
 ### 11. SLOs realistas para a primeira infra
 **Aprova os SLOs iniciais propostos em `docs/architecture/slos-capacity.md`?**
 - Resumo: Product API **99,5%** (meta V1: 99,9%), Ingestão Sentry **99,9%**, alerta até 1.ª tentativa de notificação **< 60 s**, RPO metadata **≤ 1 h**, RTO **≤ 2 h**.
-- **Decisão do CEO:** *(por preencher)*
+- **Decisão do CEO:** **Aprovados como propostos** em `docs/architecture/slos-capacity.md`, a rever após os load tests da Fase 2.9. *(2026-11-26)*
 
 ---
 
@@ -120,4 +121,4 @@
 - **A) (Recomendado — já alinhado com decisão do CTO)** Usar os **SDKs oficiais Sentry (MIT)** para todas as linguagens (JS, Python, PHP/Laravel, Java, .NET, Go, mobile) na Fase 2, e HTTP simples/OpenTelemetry para métricas; SDK próprio fica adiado para a Fase 10 só se houver procura real.
 - **B)** Construir SDK Go próprio cedo.
 
-- **Decisão do CEO:** *(por preencher)*
+- **Decisão do CEO:** **MVP com os SDKs oficiais Sentry** (incluindo `sentry-go`) e **SDK Go próprio logo a seguir ao go-live do MVP** (nova tarefa 2.10 do TASKS.md), sem atrasar o lançamento. Esta decisão substitui o adiamento do SDK próprio para a Fase 10, no que toca ao Go. *(2026-11-26, confirmada com o CTO)*

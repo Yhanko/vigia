@@ -55,8 +55,8 @@ Algoritmo: *sliding window* ou *token bucket* em Redis com headers `RateLimit-Li
 | `POST /api/v1/auth/password/forgot\|reset` | Por IP **e** por email | **3 req / 15 min** por email; **10 req / 15 min** por IP | Resposta sempre genérica (anti-enumeração) |
 | `POST /api/v1/auth/mfa/verify` | Por sessão **e** por IP | **5 tentativas / 15 min** | Invalida desafio MFA após 5 falhas |
 | Product API autenticada (`/api/v1/*`) | Por utilizador / `vg_cli_` token | **120 req / min** (burst 240) | `429` + `Retry-After` |
-| Ingestão Sentry (`/api/{id}/envelope\|store`) | Por chave `dsn` **e** por organização | **100 eventos / min** (Free), **1 000 / min** (Pro), **5 000 / min** (Business) *(valores por plano provisórios até à resposta do CEO à pergunta 4)* | `429` + `Retry-After` + `X-Sentry-Rate-Limits` |
-| Ingestão de telemetria (`/api/v1/ingest/*`, Fase 3) | Por `vg_ing_` key, por org e por IP | Conforme quota do plano (default **600 req / min** por org; *provisório até à resposta do CEO à pergunta 4*) | `429` / `503` + `Retry-After` |
+| Ingestão Sentry (`/api/{id}/envelope\|store`) | Por chave `dsn` **e** por organização | **1 000 eventos / min** por organização no **plano único do beta** (decisão do CEO, pergunta 4; valores por plano pago definidos depois do beta) | `429` + `Retry-After` + `X-Sentry-Rate-Limits` |
+| Ingestão de telemetria (`/api/v1/ingest/*`, Fase 3) | Por `vg_ing_` key, por org e por IP | Conforme quota do plano (default **600 req / min** por org no plano único do beta; a rever na Fase 3) | `429` / `503` + `Retry-After` |
 | Webhooks de entrada (Telegram / WhatsApp) | Por IP | **120 req / min** por IP | `429` + registo de abuso |
 | Notificações de saída (anti-ruído) | Por destino (email/Telegram/WhatsApp) | **10 notificações / hora** por destino (WhatsApp: também quota mensal da org) | Suprime excedentes com estado `suppressed` + digest |
 
