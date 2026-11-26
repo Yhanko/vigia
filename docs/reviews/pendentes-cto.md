@@ -15,3 +15,13 @@
 
 - [ ] **7. `crypto.Encrypter` no produtor:** as convenções Go definem interfaces do lado do consumidor; quando `identity` (e outros módulos) usarem `EnvelopeEncrypter`, definir a interface mínima no pacote consumidor e remover a interface redundante do produtor se já não for necessária.
 - [ ] **8. Injecção de `EnvelopeEncrypter` em `cmd/vigia/main.go`:** actualmente `main.go` cria e descarta o `EnvelopeEncrypter`; na 1.2 injectá-lo explicitamente no serviço de `identity` (sem global).
+
+## Revisão da migration de identidade — 1.2 (2026-11-26)
+
+> A fechar antes do serviço de `identity`.
+
+- [ ] **9. Retirar `DELETE` de `vigia_app` em `organizations`:** as organizações só passam a `status = 'deleted'` e a base de dados tem de o impor; adicionar teste de integração a provar que `DELETE` em `organizations` como `vigia_app` falha com SQLSTATE `42501`.
+- [ ] **10. Teste cross-tenant de `UPDATE` e `DELETE`:** dentro de `WithTenantTx(orgA)`, `UPDATE` e `DELETE` dirigidos a linhas da Org B afectam `0` linhas e as linhas da Org B ficam intactas.
+- [ ] **11. `isValidUUID` duplicado:** eliminar a duplicação entre `internal/platform/crypto` e `internal/platform/database` numa só implementação partilhada.
+- [ ] **12. Verificação de role no arranque da API (`staging`/`production`):** consultar `current_user`, `rolsuper` e `rolbypassrls` no arranque e recusar arrancar se `rolsuper` ou `rolbypassrls` for `true` (com teste).
+- [ ] **13. `EnsureRoles` (`log_min_duration_statement` e `log_min_error_statement`):** na mesma transacção do `ALTER ROLE`, executar também `SET LOCAL log_min_duration_statement = -1` e `SET LOCAL log_min_error_statement = 'panic'`.
