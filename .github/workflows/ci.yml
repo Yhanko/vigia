@@ -115,7 +115,7 @@ jobs:
       - name: compose válido
         run: |
           mkdir -p secrets
-          for n in postgres_password redis_password session_secret api_key_pepper; do
+          for n in postgres_password postgres_app_password redis_password session_secret api_key_pepper; do
             openssl rand -hex 32 | tr -d '\n' > "secrets/$n.txt"
           done
           printf 'k1:%s' "$(openssl rand -hex 32)" > "secrets/encryption_key.txt"

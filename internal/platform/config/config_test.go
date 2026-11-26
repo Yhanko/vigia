@@ -43,6 +43,7 @@ func TestLoadFromDefaultsAndSecretFile(t *testing.T) {
 	env["ADMIN_PORT"] = "9091"
 	env["LOG_LEVEL"] = "debug"
 	env["DATABASE_PASSWORD_FILE"] = dbPassFile
+	env["DATABASE_APP_PASSWORD_FILE"] = writeKey(t, dir, "pg_app_pass.txt", "app-pass-secret")
 	env["CORS_ORIGINS"] = "http://127.0.0.1:5173, https://vigia.example.com"
 
 	cfg, err := LoadFrom(func(k string) string { return env[k] })
@@ -52,6 +53,9 @@ func TestLoadFromDefaultsAndSecretFile(t *testing.T) {
 
 	if cfg.AppEnv != "staging" || cfg.Port != 8081 || cfg.AdminPort != 9091 || cfg.LogLevel != "debug" {
 		t.Fatalf("unexpected cfg basics: %+v", cfg)
+	}
+	if cfg.DatabaseAppPassword.Value() != "app-pass-secret" || cfg.DatabaseAppPassword.String() != "[REDACTED]" {
+		t.Fatalf("DatabaseAppPassword not loaded or not redacted")
 	}
 	if len(cfg.CORSOrigins) != 2 || cfg.CORSOrigins[1] != "https://vigia.example.com" {
 		t.Fatalf("unexpected CORSOrigins: %v", cfg.CORSOrigins)

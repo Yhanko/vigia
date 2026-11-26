@@ -4,7 +4,11 @@ package database
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
+	"net/url"
+	"strings"
 	"testing"
 	"time"
 
@@ -44,12 +48,9 @@ func startTimescaleContainer(t *testing.T) string {
 		t.Fatalf("start timescale container: %v", err)
 	}
 	t.Cleanup(func() {
-		termCtx, termCancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer termCancel()
 		if err := testcontainers.TerminateContainer(ctr); err != nil {
 			t.Logf("terminate timescale container: %v", err)
 		}
-		_ = termCtx
 	})
 
 	dsn, err := ctr.ConnectionString(ctx, "sslmode=disable")
@@ -159,4 +160,74 @@ func TestDatabaseIntegration(t *testing.T) {
 			t.Fatalf("row count = %d, want 1 (only committed row)", count)
 		}
 	})
+
+	t.Run("EnsureRoles creates SCRAM-SHA-256 vigia_app without superuser/bypassrls", func(t *testing.T) {
+		rawPass := make([]byte, 24)
+		if _, err := rand.Read(rawPass); err != nil {
+			t.Fatal(err)
+		}
+		appPass := hex.EncodeToString(rawPass)
+
+		// Must be idempotent across repeated invocations.
+		if err := EnsureRoles(ctx, dsn, appPass); err != nil {
+			t.Fatalf("first EnsureRoles: %v", err)
+		}
+		if err := EnsureRoles(ctx, dsn, appPass); err != nil {
+			t.Fatalf("second EnsureRoles (idempotent): %v", err)
+		}
+
+		// Verify stored verifier in pg_authid starts with SCRAM-SHA-256$.
+		adminPool, err := NewPool(ctx, dsn, PoolOptions{MaxConns: 2, StatementTimeout: 5 * time.Second})
+		if err != nil {
+			t.Fatalf("admin pool: %v", err)
+		}
+		defer adminPool.Close()
+
+		var storedHash string
+		if err := adminPool.QueryRow(ctx, "SELECT rolpassword FROM pg_authid WHERE rolname = 'vigia_app'").Scan(&storedHash); err != nil {
+			t.Fatalf("query pg_authid: %v", err)
+		}
+		if !strings.HasPrefix(storedHash, "SCRAM-SHA-256$") {
+			t.Fatalf("vigia_app rolpassword = %q, want SCRAM-SHA-256$ prefix", storedHash)
+		}
+
+		// Authenticate as vigia_app with the generated password.
+		appDSN := replaceDSNUser(t, dsn, "vigia_app", appPass)
+		appPool, err := NewPool(ctx, appDSN, PoolOptions{MaxConns: 2, StatementTimeout: 5 * time.Second})
+		if err != nil {
+			t.Fatalf("connect as vigia_app: %v", err)
+		}
+		defer appPool.Close()
+
+		var curUser string
+		var rolSuper, rolBypassRLS bool
+		if err := appPool.QueryRow(ctx, "SELECT current_user, rolsuper, rolbypassrls FROM pg_roles WHERE rolname = current_user").
+			Scan(&curUser, &rolSuper, &rolBypassRLS); err != nil {
+			t.Fatalf("query current role: %v", err)
+		}
+		if curUser != "vigia_app" || rolSuper || rolBypassRLS {
+			t.Fatalf("unexpected runtime role: user=%q rolsuper=%v rolbypassrls=%v", curUser, rolSuper, rolBypassRLS)
+		}
+
+		// vigia_app must NOT be able to escalate to vigia or vigia_definer, nor read pg_authid.
+		for _, forbidden := range []string{
+			"SET ROLE vigia",
+			"SET ROLE vigia_definer",
+			"SELECT rolpassword FROM pg_authid LIMIT 1",
+		} {
+			if _, err := appPool.Exec(ctx, forbidden); err == nil {
+				t.Fatalf("vigia_app unexpectedly succeeded on forbidden statement: %s", forbidden)
+			}
+		}
+	})
+}
+
+func replaceDSNUser(t *testing.T, dsn, user, pass string) string {
+	t.Helper()
+	u, err := url.Parse(dsn)
+	if err != nil {
+		t.Fatalf("parse dsn: %v", err)
+	}
+	u.User = url.UserPassword(user, pass)
+	return u.String()
 }

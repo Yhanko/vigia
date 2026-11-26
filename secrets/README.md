@@ -4,7 +4,8 @@ Ficheiros com passwords e chaves usados como Docker secrets pelo `compose.yaml`.
 
 | Ficheiro | Usado por | Variável na API |
 |---|---|---|
-| `postgres_password.txt` | Serviços `db`, `migrate` e `api` (utilizador `vigia`) | `DATABASE_PASSWORD_FILE` |
+| `postgres_password.txt` | Serviços `db` e `migrate` (superuser `vigia`) | `DATABASE_PASSWORD_FILE` (apenas `migrate`) |
+| `postgres_app_password.txt` | Serviços `migrate` (sincroniza role) e `api` (runtime `vigia_app`, sem `SUPERUSER`/`BYPASSRLS`) | `DATABASE_PASSWORD_FILE` (`api`) / `DATABASE_APP_PASSWORD_FILE` (`migrate`) |
 | `redis_password.txt` | Serviços `redis` e `api` (utilizador `default`) | `REDIS_PASSWORD_FILE` |
 | `session_secret.txt` | `api`: assinatura de sessões | `SESSION_SECRET_FILE` |
 | `api_key_pepper.txt` | `api`: pepper do HMAC das API keys (README §10.2) | `API_KEY_PEPPER_FILE` |
@@ -17,7 +18,7 @@ Em `staging` e `production` a API recusa arrancar sem `session_secret`, `api_key
 Gerar valores aleatórios (sem quebra de linha no fim):
 
 ```bash
-for n in postgres_password redis_password session_secret api_key_pepper; do
+for n in postgres_password postgres_app_password redis_password session_secret api_key_pepper; do
   [ -f "secrets/$n.txt" ] || openssl rand -hex 32 | tr -d '\n' > "secrets/$n.txt"
 done
 [ -f "secrets/encryption_key.txt" ] || printf 'k1:%s' "$(openssl rand -hex 32)" > "secrets/encryption_key.txt"
@@ -27,7 +28,7 @@ PowerShell:
 
 ```powershell
 $rng = [Security.Cryptography.RandomNumberGenerator]::Create()
-foreach ($n in 'postgres_password','redis_password','session_secret','api_key_pepper') {
+foreach ($n in 'postgres_password','postgres_app_password','redis_password','session_secret','api_key_pepper') {
   $p = Join-Path $PWD "secrets\$n.txt"
   if (Test-Path $p) { continue }
   $b = New-Object byte[] 32; $rng.GetBytes($b)

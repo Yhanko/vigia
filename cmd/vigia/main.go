@@ -211,6 +211,13 @@ func runMigrate(action string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	if action == "up" && !cfg.DatabaseAppPassword.IsEmpty() {
+		logger.Info("ensuring PostgreSQL runtime roles")
+		if err := database.EnsureRoles(ctx, dsn, cfg.DatabaseAppPassword.Value()); err != nil {
+			return err
+		}
+	}
+
 	logger.Info("running database migrations", "action", action)
 	if err := database.Migrate(ctx, dsn, migrations.FS, action); err != nil {
 		return err

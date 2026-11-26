@@ -52,6 +52,7 @@ type Config struct {
 
 	DatabaseURL              string
 	DatabasePassword         Secret
+	DatabaseAppPassword      Secret
 	DatabaseMaxConns         int32
 	DatabaseStatementTimeout time.Duration
 
@@ -156,6 +157,9 @@ func LoadFrom(getenv func(string) string) (Config, error) {
 
 	var err error
 	if cfg.DatabasePassword, err = readSecretFile(getenv, "DATABASE_PASSWORD_FILE"); err != nil {
+		return Config{}, err
+	}
+	if cfg.DatabaseAppPassword, err = readSecretFile(getenv, "DATABASE_APP_PASSWORD_FILE"); err != nil {
 		return Config{}, err
 	}
 
