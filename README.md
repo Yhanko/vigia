@@ -1695,8 +1695,10 @@ ADMIN_PORT=9090
 APP_URL=http://127.0.0.1:8080
 LOG_LEVEL=info
 
-DATABASE_URL=postgresql://vigia@db:5432/vigia?sslmode=disable
-DATABASE_PASSWORD_FILE=/run/secrets/postgres_password
+DATABASE_URL=postgresql://vigia_app@db:5432/vigia?sslmode=disable
+DATABASE_PASSWORD_FILE=/run/secrets/postgres_app_password
+# Apenas no job vigia migrate (usa superuser vigia + postgres_password):
+DATABASE_APP_PASSWORD_FILE=/run/secrets/postgres_app_password
 DATABASE_MAX_CONNS=20
 DATABASE_STATEMENT_TIMEOUT=10s
 REDIS_ADDR=redis:6379

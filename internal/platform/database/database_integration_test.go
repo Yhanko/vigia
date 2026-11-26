@@ -475,6 +475,24 @@ func TestDatabaseIntegration(t *testing.T) {
 			t.Fatalf("unexpected invitation lookup: inv=%s org=%s, want (%s, %s)", gotInvID, gotInvOrgID, invA, orgA)
 		}
 
+		// Verify WithTenantTx helper sets RLS context and enforces tenant isolation.
+		tidA, err := ParseTenantID(orgA)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := WithTenantTx(ctx, appPool, tidA, func(tx pgx.Tx) error {
+			var slug string
+			if err := tx.QueryRow(ctx, "SELECT slug FROM organizations").Scan(&slug); err != nil {
+				return err
+			}
+			if slug != "org-a" {
+				t.Fatalf("WithTenantTx(tidA) saw slug=%q, want org-a", slug)
+			}
+			return nil
+		}); err != nil {
+			t.Fatalf("WithTenantTx(tidA): %v", err)
+		}
+
 		// Verify ownership = vigia_definer (not vigia) and PUBLIC has NO EXECUTE on both functions.
 		adminPool, err := NewPool(ctx, dsn, PoolOptions{MaxConns: 2, StatementTimeout: 5 * time.Second})
 		if err != nil {
