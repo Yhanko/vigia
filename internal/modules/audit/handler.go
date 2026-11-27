@@ -51,6 +51,8 @@ func (h *Handler) ListOrganizationAuditLogs(w http.ResponseWriter, r *http.Reque
 	}
 	if _, err := h.authz.Authorize(r.Context(), tid, actor, organizations.PermAuditRead); err != nil {
 		switch {
+		case errors.Is(err, organizations.ErrNotFound):
+			httpserver.WriteError(w, r, http.StatusNotFound, "RESOURCE_NOT_FOUND", "The requested resource was not found.")
 		case errors.Is(err, organizations.ErrMFASetupRequired):
 			httpserver.WriteError(w, r, http.StatusForbidden, "MFA_SETUP_REQUIRED", "Multi-factor authentication setup is required for privileged roles.")
 		case errors.Is(err, organizations.ErrForbidden):

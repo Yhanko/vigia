@@ -752,6 +752,7 @@ func (s *Service) checkAnomalousIP(ctx context.Context, orgID, credID, clientIP 
 		return
 	}
 	resID := credID
+	credUUID, _ := parseUUID(credID)
 	changes, _ := json.Marshal(map[string]any{
 		"observed_ip_prefix": prefix,
 		"known_prefixes":     card,
@@ -760,7 +761,8 @@ func (s *Service) checkAnomalousIP(ctx context.Context, orgID, credID, clientIP 
 		return s.q.WithTx(tx).InsertTenantAuditLog(ctx, sqlcgen.InsertTenantAuditLogParams{
 			ID:             newPgUUID(),
 			OrganizationID: orgUUID,
-			ActorType:      "api_key",
+			ActorType:      "credential",
+			ActorID:        credUUID,
 			Action:         "credential.anomalous_ip",
 			ResourceType:   "api_credential",
 			ResourceID:     &resID,
