@@ -133,7 +133,7 @@ type Store interface {
 	ActivateMFA(ctx context.Context, userID, oldSessionID string, step int64, recoveryTokens []UserTokenRecord, next SessionRecord, now time.Time) error
 	CompleteMFALogin(ctx context.Context, userID, pendingSessionID string, step *int64, recoveryTokenHash []byte, next SessionRecord, now time.Time) error
 	RecordPendingMFAFailure(ctx context.Context, pendingSessionID string, now time.Time) (revoked bool, err error)
-	UpdateUserMFALastUsedStep(ctx context.Context, userID string, step int64, now time.Time) error
+	ReauthRotate(ctx context.Context, userID, oldSessionID string, step *int64, next SessionRecord, now time.Time) error
 	CreateUserToken(ctx context.Context, rec UserTokenRecord) error
 	ReplaceUserToken(ctx context.Context, rec UserTokenRecord, now time.Time) error
 	VerifyEmailByToken(ctx context.Context, tokenHash []byte, now time.Time) (string, error)

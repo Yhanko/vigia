@@ -337,12 +337,16 @@ func (s *PostgresStore) ActivateMFA(ctx context.Context, userID, oldSessionID st
 
 	return database.WithTx(ctx, s.pool, func(tx pgx.Tx) error {
 		qtx := s.q.WithTx(tx)
-		if err := qtx.EnableUserMFA(ctx, sqlcgen.EnableUserMFAParams{
+		affected, err := qtx.EnableUserMFA(ctx, sqlcgen.EnableUserMFAParams{
 			ID:              uid,
 			MfaLastUsedStep: &step,
 			UpdatedAt:       ts,
-		}); err != nil {
+		})
+		if err != nil {
 			return fmt.Errorf("enable user mfa: %w", err)
+		}
+		if affected == 0 {
+			return ErrInvalidMFACode
 		}
 		if err := qtx.InvalidateUserTokensByKind(ctx, sqlcgen.InvalidateUserTokensByKindParams{
 			UserID: uid,
@@ -423,12 +427,16 @@ func (s *PostgresStore) CompleteMFALogin(ctx context.Context, userID, pendingSes
 			return ErrSessionExpired
 		}
 		if step != nil {
-			if err := qtx.UpdateUserMFALastUsedStep(ctx, sqlcgen.UpdateUserMFALastUsedStepParams{
+			stepAffected, err := qtx.UpdateUserMFALastUsedStep(ctx, sqlcgen.UpdateUserMFALastUsedStepParams{
 				ID:              uid,
 				MfaLastUsedStep: step,
 				UpdatedAt:       ts,
-			}); err != nil {
+			})
+			if err != nil {
 				return fmt.Errorf("update mfa last used step: %w", err)
+			}
+			if stepAffected == 0 {
+				return ErrInvalidMFACode
 			}
 		}
 		if _, err := qtx.CreateSession(ctx, nextParams); err != nil {
@@ -456,15 +464,50 @@ func (s *PostgresStore) RecordPendingMFAFailure(ctx context.Context, pendingSess
 	return row.RevokedAt.Valid, nil
 }
 
-func (s *PostgresStore) UpdateUserMFALastUsedStep(ctx context.Context, userID string, step int64, now time.Time) error {
+func (s *PostgresStore) ReauthRotate(ctx context.Context, userID, oldSessionID string, step *int64, next SessionRecord, now time.Time) error {
 	uid, err := toPGUUID(userID)
 	if err != nil {
 		return err
 	}
-	return s.q.UpdateUserMFALastUsedStep(ctx, sqlcgen.UpdateUserMFALastUsedStepParams{
-		ID:              uid,
-		MfaLastUsedStep: &step,
-		UpdatedAt:       pgtype.Timestamptz{Time: now.UTC(), Valid: true},
+	oldID, err := toPGUUID(oldSessionID)
+	if err != nil {
+		return err
+	}
+	nextParams, err := toCreateSessionParams(next)
+	if err != nil {
+		return err
+	}
+	ts := pgtype.Timestamptz{Time: now.UTC(), Valid: true}
+
+	return database.WithTx(ctx, s.pool, func(tx pgx.Tx) error {
+		qtx := s.q.WithTx(tx)
+		if step != nil {
+			stepAffected, err := qtx.UpdateUserMFALastUsedStep(ctx, sqlcgen.UpdateUserMFALastUsedStepParams{
+				ID:              uid,
+				MfaLastUsedStep: step,
+				UpdatedAt:       ts,
+			})
+			if err != nil {
+				return fmt.Errorf("update mfa last used step on reauth: %w", err)
+			}
+			if stepAffected == 0 {
+				return ErrInvalidMFACode
+			}
+		}
+		affected, err := qtx.RevokeSession(ctx, sqlcgen.RevokeSessionParams{
+			ID:        oldID,
+			RevokedAt: ts,
+		})
+		if err != nil {
+			return fmt.Errorf("revoke session on reauth: %w", err)
+		}
+		if affected == 0 {
+			return ErrSessionExpired
+		}
+		if _, err := qtx.CreateSession(ctx, nextParams); err != nil {
+			return fmt.Errorf("create reauthed session: %w", err)
+		}
+		return nil
 	})
 }
 

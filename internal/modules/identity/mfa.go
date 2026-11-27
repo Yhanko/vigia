@@ -165,6 +165,10 @@ func (s *Service) VerifyMFA(ctx context.Context, active ActiveSession, code, rec
 		}
 
 		if err := s.store.ActivateMFA(ctx, active.UserID, active.ID, step, tokenRecs, nextSess, now); err != nil {
+			if errors.Is(err, ErrInvalidMFACode) {
+				s.recordAudit(ctx, "user", active.UserID, "auth.mfa.verify", "user", active.UserID, "failure", meta, nil)
+				return MFAVerifyResult{}, ErrInvalidMFACode
+			}
 			return MFAVerifyResult{}, fmt.Errorf("mfa activate: %w", err)
 		}
 
@@ -306,11 +310,15 @@ func (s *Service) Reauth(ctx context.Context, active ActiveSession, plainPasswor
 		nextSess.ExpiresAt = active.AbsoluteExpiresAt
 	}
 
-	if err := s.store.RotateSession(ctx, active.ID, nextSess, now); err != nil {
+	if err := s.store.ReauthRotate(ctx, user.ID, active.ID, matchedStep, nextSess, now); err != nil {
+		if errors.Is(err, ErrInvalidMFACode) {
+			s.recordAudit(ctx, "user", active.UserID, "auth.reauth", "session", active.ID, "failure", meta, nil)
+			return AuthResult{}, ErrInvalidMFACode
+		}
+		if errors.Is(err, ErrSessionExpired) {
+			return AuthResult{}, ErrSessionExpired
+		}
 		return AuthResult{}, fmt.Errorf("reauth rotate session: %w", err)
-	}
-	if matchedStep != nil {
-		_ = s.store.UpdateUserMFALastUsedStep(ctx, user.ID, *matchedStep, now)
 	}
 
 	s.recordAudit(ctx, "user", active.UserID, "auth.reauth", "session", nextSess.ID, "success", meta, nil)

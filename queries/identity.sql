@@ -97,18 +97,21 @@ SET mfa_secret_encrypted = $2,
 WHERE id = $1
   AND mfa_enabled = false;
 
--- name: EnableUserMFA :exec
+-- name: EnableUserMFA :execrows
 UPDATE users
 SET mfa_enabled = true,
     mfa_last_used_step = $2,
     updated_at = sqlc.arg(updated_at)::timestamptz
-WHERE id = $1;
+WHERE id = $1
+  AND mfa_enabled = false
+  AND (mfa_last_used_step IS NULL OR mfa_last_used_step < $2);
 
--- name: UpdateUserMFALastUsedStep :exec
+-- name: UpdateUserMFALastUsedStep :execrows
 UPDATE users
 SET mfa_last_used_step = $2,
     updated_at = sqlc.arg(updated_at)::timestamptz
-WHERE id = $1;
+WHERE id = $1
+  AND (mfa_last_used_step IS NULL OR mfa_last_used_step < $2);
 
 -- name: RevokeOtherUserSessions :execrows
 UPDATE sessions

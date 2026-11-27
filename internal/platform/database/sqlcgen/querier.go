@@ -35,7 +35,7 @@ type Querier interface {
 	DeleteEnvironment(ctx context.Context, arg DeleteEnvironmentParams) (int64, error)
 	DeleteMembership(ctx context.Context, arg DeleteMembershipParams) (int64, error)
 	DeleteTeam(ctx context.Context, arg DeleteTeamParams) (int64, error)
-	EnableUserMFA(ctx context.Context, arg EnableUserMFAParams) error
+	EnableUserMFA(ctx context.Context, arg EnableUserMFAParams) (int64, error)
 	GetActiveSessionByTokenHash(ctx context.Context, arg GetActiveSessionByTokenHashParams) (GetActiveSessionByTokenHashRow, error)
 	GetEnvironmentByID(ctx context.Context, arg GetEnvironmentByIDParams) (Environment, error)
 	GetMembershipByID(ctx context.Context, arg GetMembershipByIDParams) (Membership, error)
@@ -79,7 +79,7 @@ type Querier interface {
 	UpdateOrganization(ctx context.Context, arg UpdateOrganizationParams) (Organization, error)
 	UpdateProject(ctx context.Context, arg UpdateProjectParams) (Project, error)
 	UpdateTeam(ctx context.Context, arg UpdateTeamParams) (Team, error)
-	UpdateUserMFALastUsedStep(ctx context.Context, arg UpdateUserMFALastUsedStepParams) error
+	UpdateUserMFALastUsedStep(ctx context.Context, arg UpdateUserMFALastUsedStepParams) (int64, error)
 	UpdateUserPasswordHash(ctx context.Context, arg UpdateUserPasswordHashParams) error
 	UpdateUserStatus(ctx context.Context, arg UpdateUserStatusParams) error
 }

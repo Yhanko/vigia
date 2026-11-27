@@ -312,14 +312,24 @@ func (m *memStore) RecordPendingMFAFailure(_ context.Context, pendingSessionID s
 	return false, nil
 }
 
-func (m *memStore) UpdateUserMFALastUsedStep(_ context.Context, userID string, step int64, _ time.Time) error {
+func (m *memStore) ReauthRotate(_ context.Context, userID, oldSessionID string, step *int64, next identity.SessionRecord, now time.Time) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	u := m.usersID[userID]
-	st := step
-	u.MFALastUsedStep = &st
-	m.usersID[userID] = u
-	m.users[u.Email] = u
+	if _, already := m.revoked[oldSessionID]; already {
+		return identity.ErrSessionExpired
+	}
+	if step != nil {
+		u := m.usersID[userID]
+		if u.MFALastUsedStep != nil && *u.MFALastUsedStep >= *step {
+			return identity.ErrInvalidMFACode
+		}
+		st := *step
+		u.MFALastUsedStep = &st
+		m.usersID[userID] = u
+		m.users[u.Email] = u
+	}
+	m.revoked[oldSessionID] = now
+	m.sessions[string(next.TokenHash)] = next
 	return nil
 }
 

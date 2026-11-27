@@ -182,12 +182,14 @@ func (q *Queries) CreateUserToken(ctx context.Context, arg CreateUserTokenParams
 	return err
 }
 
-const enableUserMFA = `-- name: EnableUserMFA :exec
+const enableUserMFA = `-- name: EnableUserMFA :execrows
 UPDATE users
 SET mfa_enabled = true,
     mfa_last_used_step = $2,
     updated_at = $3::timestamptz
 WHERE id = $1
+  AND mfa_enabled = false
+  AND (mfa_last_used_step IS NULL OR mfa_last_used_step < $2)
 `
 
 type EnableUserMFAParams struct {
@@ -196,9 +198,12 @@ type EnableUserMFAParams struct {
 	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
 }
 
-func (q *Queries) EnableUserMFA(ctx context.Context, arg EnableUserMFAParams) error {
-	_, err := q.db.Exec(ctx, enableUserMFA, arg.ID, arg.MfaLastUsedStep, arg.UpdatedAt)
-	return err
+func (q *Queries) EnableUserMFA(ctx context.Context, arg EnableUserMFAParams) (int64, error) {
+	result, err := q.db.Exec(ctx, enableUserMFA, arg.ID, arg.MfaLastUsedStep, arg.UpdatedAt)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const getActiveSessionByTokenHash = `-- name: GetActiveSessionByTokenHash :one
@@ -600,11 +605,12 @@ func (q *Queries) SetUserPendingMFASecret(ctx context.Context, arg SetUserPendin
 	return err
 }
 
-const updateUserMFALastUsedStep = `-- name: UpdateUserMFALastUsedStep :exec
+const updateUserMFALastUsedStep = `-- name: UpdateUserMFALastUsedStep :execrows
 UPDATE users
 SET mfa_last_used_step = $2,
     updated_at = $3::timestamptz
 WHERE id = $1
+  AND (mfa_last_used_step IS NULL OR mfa_last_used_step < $2)
 `
 
 type UpdateUserMFALastUsedStepParams struct {
@@ -613,9 +619,12 @@ type UpdateUserMFALastUsedStepParams struct {
 	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
 }
 
-func (q *Queries) UpdateUserMFALastUsedStep(ctx context.Context, arg UpdateUserMFALastUsedStepParams) error {
-	_, err := q.db.Exec(ctx, updateUserMFALastUsedStep, arg.ID, arg.MfaLastUsedStep, arg.UpdatedAt)
-	return err
+func (q *Queries) UpdateUserMFALastUsedStep(ctx context.Context, arg UpdateUserMFALastUsedStepParams) (int64, error) {
+	result, err := q.db.Exec(ctx, updateUserMFALastUsedStep, arg.ID, arg.MfaLastUsedStep, arg.UpdatedAt)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const updateUserPasswordHash = `-- name: UpdateUserPasswordHash :exec
