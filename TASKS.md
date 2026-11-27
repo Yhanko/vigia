@@ -18,7 +18,7 @@
 
 ## 🚦 Fase activa e porta de fase
 
-> **FASE ACTIVA: 1 — Fundação do Backend** *(aberta em 2026-11-26: porta da Fase 0 aprovada pelo CTO e autorizada pelo CEO)*
+> **FASE ACTIVA: 2 — MVP: Error Tracking compatível Sentry + Alertas + Notificações** *(aberta em 2026-11-27: porta da Fase 1 aprovada pelo CTO e autorizada pelo CEO; primeiro passo: ADR-003, ADR-004, ADR-009 e ADR-017 pelo CTO, antes de qualquer código)*
 > *(só o CTO, com autorização do CEO, muda esta linha)*
 
 **Regras:**
@@ -120,8 +120,8 @@
 | Fase | Tema | Estado | Critério de saída |
 |---|---|---|---|
 | 0 | Discovery, arquitectura e contratos | `[x]` (porta aprovada em 2026-11-26) | Scope aprovado, ADRs da fase seguinte escritos, riscos listados |
-| 1 | Fundação do backend (auth, orgs, projectos, credenciais, CI) | `[~]` **← fase activa** (porta aprovada pelo CTO em 2026-11-27; falta CI verde do push e autorização do CEO; branch protection adiada para antes do go-live por decisão do CEO) | Auth + isolamento de tenant em E2E; pipeline verde; backup/restore testado |
-| **2** | **MVP: Error tracking compatível Sentry + alertas + email/Telegram/WhatsApp + UI mínima + go-live** | `[ ]` | SDKs Sentry de ≥ 5 plataformas enviam erros só com troca de DSN; alerta → notificação nos 3 canais com falhas simuladas; go-live mínimo aprovado |
+| 1 | Fundação do backend (auth, orgs, projectos, credenciais, CI) | `[x]` (porta aprovada pelo CTO e autorizada pelo CEO em 2026-11-27; branch protection adiada para o go-live) | Auth + isolamento de tenant em E2E; pipeline verde; backup/restore testado |
+| **2** | **MVP: Error tracking compatível Sentry + alertas + email/Telegram/WhatsApp + UI mínima + go-live** | `[~]` **← fase activa** | SDKs Sentry de ≥ 5 plataformas enviam erros só com troca de DSN; alerta → notificação nos 3 canais com falhas simuladas; go-live mínimo aprovado |
 | 3 | Métricas e ingestão de telemetria | `[ ]` | Load test base aprovado; sobrecarga documentada; retenção validada |
 | 4 | Alertas de métricas, incidentes e tempo real (SSE) | `[ ]` | E2E ingest → alerta → incidente → notificação |
 | 5 | Canais adicionais: webhooks e Web Push | `[ ]` | Suite SSRF base aprovada; assinatura HMAC verificável |
@@ -239,7 +239,7 @@
 - [x] `.golangci.yml`: `gosec`, `errcheck`, `bodyclose`, `noctx`, `errorlint`, `rowserrcheck`, `sqlclosecheck`, `forbidigo` (`http.Get`/`http.DefaultClient`/`fmt.Print` proibidos fora do CLI), `goimports`
 - [x] Fronteiras (§4.5): `depguard` impede `internal/platform` de importar `internal/modules` e proíbe `math/rand`, `log`, `io/ioutil`, `github.com/pkg/errors`. Entre módulos, a regra é estrutural: o código privado de cada módulo vive em `internal/modules/<x>/internal/` e o compilador do Go impede outros módulos de o importar
 - [x] Dependabot (`gomod`, `github-actions`, `docker`) com `cooldown` de 7 dias (§11.6)
-- [ ] *(adiado por decisão do CEO em 2026-11-27; obrigatório antes do go-live 2.9 — ver registo de decisões)* **Branch protection** em `staging` e `main`: 5 jobs (`lint`, `test`, `integration`, `security`, `docker`) obrigatórios, bloquear force-push e eliminação; **não** activar "Require a pull request" (o fluxo é por fast-forward de commits já verdes em `development`, e o GitHub aceita o push porque o mesmo SHA já tem os checks) — *acção manual 👔 no GitHub*
+- [ ] *(movido para o go-live 2.9 por decisão do CEO em 2026-11-27 — não bloqueia a Fase 1)* **Branch protection** em `staging` e `main`: 5 jobs (`lint`, `test`, `integration`, `security`, `docker`) obrigatórios, bloquear force-push e eliminação; **não** activar "Require a pull request" (o fluxo é por fast-forward de commits já verdes em `development`, e o GitHub aceita o push porque o mesmo SHA já tem os checks) — *acção manual 👔 no GitHub*
 - [x] `sqlc diff` e `oapi-codegen` sem diferenças no CI (quando houver código gerado; ver 1.1)
 
 ### 1.1 Fundação da plataforma (`platform/` + CLI)
