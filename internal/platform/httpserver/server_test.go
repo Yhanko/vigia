@@ -8,13 +8,31 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/Yhanko/vigia/internal/api"
 )
+
+type testStatusServer struct {
+	api.Unimplemented
+	version string
+	commit  string
+}
+
+func (s testStatusServer) GetStatus(w http.ResponseWriter, _ *http.Request) {
+	WriteJSON(w, http.StatusOK, api.StatusResponse{
+		Service: "vigia",
+		Status:  "ok",
+		Version: s.version,
+		Commit:  s.commit,
+	})
+}
 
 func TestRoutesAndErrorEnvelopes(t *testing.T) {
 	h := NewHandler(Options{
 		Version:     "test-1.0",
 		Commit:      "abc1234",
 		CORSOrigins: []string{"http://127.0.0.1:5173"},
+		APIServer:   testStatusServer{version: "test-1.0", commit: "abc1234"},
 	})
 
 	tests := []struct {
@@ -124,6 +142,7 @@ func TestAdminHandlerAndReadinessChecks(t *testing.T) {
 func TestCORSAllowlist(t *testing.T) {
 	h := NewHandler(Options{
 		CORSOrigins: []string{"http://127.0.0.1:5173"},
+		APIServer:   testStatusServer{},
 	})
 
 	req := httptest.NewRequest(http.MethodOptions, "/api/v1/status", nil)
@@ -148,7 +167,7 @@ func TestCORSAllowlist(t *testing.T) {
 
 func TestSecurityHardening(t *testing.T) {
 	t.Run("rejects malicious X-Request-Id header injection", func(t *testing.T) {
-		h := NewHandler(Options{})
+		h := NewHandler(Options{APIServer: testStatusServer{}})
 		req := httptest.NewRequest(http.MethodGet, "/api/v1/status", nil)
 		req.Header.Set("X-Request-Id", "evil\r\nSet-Cookie: session=hacked")
 		rec := httptest.NewRecorder()

@@ -8,6 +8,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/Yhanko/vigia/internal/platform/ids"
 )
 
 const nilUUID = "00000000-0000-0000-0000-000000000000"
@@ -25,8 +27,8 @@ type TenantID struct {
 
 // ParseTenantID validates raw as a non-nil canonical UUID and normalizes it to lowercase.
 func ParseTenantID(raw string) (TenantID, error) {
-	v := strings.ToLower(strings.TrimSpace(raw))
-	if !isValidUUID(v) || v == nilUUID {
+	v, err := ids.NormalizeUUID(strings.TrimSpace(raw))
+	if err != nil || v == nilUUID {
 		return TenantID{}, fmt.Errorf("%w: must be a non-nil canonical UUID", ErrInvalidTenantID)
 	}
 	return TenantID{value: v}, nil
@@ -37,7 +39,7 @@ func (t TenantID) String() string { return t.value }
 
 // IsValid reports whether t holds a valid non-nil UUID.
 func (t TenantID) IsValid() bool {
-	return isValidUUID(t.value) && t.value != nilUUID
+	return ids.IsCanonicalUUID(t.value) && t.value != nilUUID
 }
 
 // WithTenantTx runs fn inside a PostgreSQL transaction scoped to tenantID via
@@ -53,25 +55,4 @@ func WithTenantTx(ctx context.Context, pool *pgxpool.Pool, tenantID TenantID, fn
 		}
 		return fn(tx)
 	})
-}
-
-func isValidUUID(s string) bool {
-	if len(s) != 36 {
-		return false
-	}
-	for i := range 36 {
-		c := s[i]
-		switch i {
-		case 8, 13, 18, 23:
-			if c != '-' {
-				return false
-			}
-		default:
-			isHex := (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')
-			if !isHex {
-				return false
-			}
-		}
-	}
-	return true
 }

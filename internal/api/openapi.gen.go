@@ -4,11 +4,234 @@
 package api
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/oapi-codegen/runtime"
+	openapi_types "github.com/oapi-codegen/runtime/types"
 )
+
+// Defines values for CreateCredentialRequestKind.
+const (
+	Client CreateCredentialRequestKind = "client"
+	Dsn    CreateCredentialRequestKind = "dsn"
+	Ingest CreateCredentialRequestKind = "ingest"
+)
+
+// Valid indicates whether the value is a known member of the CreateCredentialRequestKind enum.
+func (e CreateCredentialRequestKind) Valid() bool {
+	switch e {
+	case Client:
+		return true
+	case Dsn:
+		return true
+	case Ingest:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for CreateInvitationRequestRole.
+const (
+	CreateInvitationRequestRoleAdmin  CreateInvitationRequestRole = "admin"
+	CreateInvitationRequestRoleMember CreateInvitationRequestRole = "member"
+	CreateInvitationRequestRoleViewer CreateInvitationRequestRole = "viewer"
+)
+
+// Valid indicates whether the value is a known member of the CreateInvitationRequestRole enum.
+func (e CreateInvitationRequestRole) Valid() bool {
+	switch e {
+	case CreateInvitationRequestRoleAdmin:
+		return true
+	case CreateInvitationRequestRoleMember:
+		return true
+	case CreateInvitationRequestRoleViewer:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for UpdateMemberRoleRequestRole.
+const (
+	UpdateMemberRoleRequestRoleAdmin  UpdateMemberRoleRequestRole = "admin"
+	UpdateMemberRoleRequestRoleMember UpdateMemberRoleRequestRole = "member"
+	UpdateMemberRoleRequestRoleViewer UpdateMemberRoleRequestRole = "viewer"
+)
+
+// Valid indicates whether the value is a known member of the UpdateMemberRoleRequestRole enum.
+func (e UpdateMemberRoleRequestRole) Valid() bool {
+	switch e {
+	case UpdateMemberRoleRequestRoleAdmin:
+		return true
+	case UpdateMemberRoleRequestRoleMember:
+		return true
+	case UpdateMemberRoleRequestRoleViewer:
+		return true
+	default:
+		return false
+	}
+}
+
+// AcceptInvitationRequest defines model for AcceptInvitationRequest.
+type AcceptInvitationRequest struct {
+	Token string `json:"token"`
+}
+
+// AcceptInvitationResponse defines model for AcceptInvitationResponse.
+type AcceptInvitationResponse struct {
+	OrganizationId string `json:"organizationId"`
+}
+
+// AcceptedMessageResponse defines model for AcceptedMessageResponse.
+type AcceptedMessageResponse struct {
+	// Message Example: If your request is eligible, check your email for further instructions.
+	Message string `json:"message"`
+}
+
+// AuditLogEntryResponse defines model for AuditLogEntryResponse.
+type AuditLogEntryResponse struct {
+	Action         string          `json:"action"`
+	ActorId        *string         `json:"actorId,omitempty"`
+	ActorType      string          `json:"actorType"`
+	Changes        *map[string]any `json:"changes,omitempty"`
+	CreatedAt      time.Time       `json:"createdAt"`
+	Id             string          `json:"id"`
+	IpPrefix       *string         `json:"ipPrefix,omitempty"`
+	OrganizationId string          `json:"organizationId"`
+	RequestId      string          `json:"requestId"`
+	ResourceId     *string         `json:"resourceId,omitempty"`
+	ResourceType   string          `json:"resourceType"`
+	Result         string          `json:"result"`
+	UserAgent      *string         `json:"userAgent,omitempty"`
+}
+
+// AuditLogPageResponse defines model for AuditLogPageResponse.
+type AuditLogPageResponse struct {
+	Items      []AuditLogEntryResponse `json:"items"`
+	NextCursor *string                 `json:"nextCursor,omitempty"`
+}
+
+// AuthSessionResponse defines model for AuthSessionResponse.
+type AuthSessionResponse struct {
+	// CsrfToken CSRF token to send in the X-CSRF-Token header on subsequent state-changing requests.
+	CsrfToken string    `json:"csrfToken"`
+	ExpiresAt time.Time `json:"expiresAt"`
+	User      AuthUser  `json:"user"`
+}
+
+// AuthUser defines model for AuthUser.
+type AuthUser struct {
+	Email      openapi_types.Email `json:"email"`
+	Id         openapi_types.UUID  `json:"id"`
+	MfaEnabled bool                `json:"mfaEnabled"`
+	Name       string              `json:"name"`
+}
+
+// ConfirmSlugRequest defines model for ConfirmSlugRequest.
+type ConfirmSlugRequest struct {
+	ConfirmSlug string `json:"confirmSlug"`
+}
+
+// CreateCredentialRequest defines model for CreateCredentialRequest.
+type CreateCredentialRequest struct {
+	AllowedOrigins *[]string                   `json:"allowedOrigins,omitempty"`
+	EnvironmentId  *string                     `json:"environmentId,omitempty"`
+	ExpiresAt      *time.Time                  `json:"expiresAt,omitempty"`
+	Kind           CreateCredentialRequestKind `json:"kind"`
+	Name           string                      `json:"name"`
+	Scopes         *[]string                   `json:"scopes,omitempty"`
+}
+
+// CreateCredentialRequestKind defines model for CreateCredentialRequest.Kind.
+type CreateCredentialRequestKind string
+
+// CreateEnvironmentRequest defines model for CreateEnvironmentRequest.
+type CreateEnvironmentRequest struct {
+	IsProtected *bool  `json:"isProtected,omitempty"`
+	Name        string `json:"name"`
+}
+
+// CreateInvitationRequest defines model for CreateInvitationRequest.
+type CreateInvitationRequest struct {
+	Email string                      `json:"email"`
+	Role  CreateInvitationRequestRole `json:"role"`
+}
+
+// CreateInvitationRequestRole defines model for CreateInvitationRequest.Role.
+type CreateInvitationRequestRole string
+
+// CreateOrganizationRequest defines model for CreateOrganizationRequest.
+type CreateOrganizationRequest struct {
+	Name string `json:"name"`
+	Slug string `json:"slug"`
+}
+
+// CreateProjectRequest defines model for CreateProjectRequest.
+type CreateProjectRequest struct {
+	Name     string  `json:"name"`
+	Platform *string `json:"platform,omitempty"`
+	Slug     string  `json:"slug"`
+}
+
+// CreateTeamRequest defines model for CreateTeamRequest.
+type CreateTeamRequest struct {
+	Name string `json:"name"`
+	Slug string `json:"slug"`
+}
+
+// CreatedCredentialResponse defines model for CreatedCredentialResponse.
+type CreatedCredentialResponse struct {
+	Credential CredentialResponse `json:"credential"`
+
+	// Secret Raw secret key returned ONCE at creation or rotation (omitted for DSN keys).
+	Secret *string `json:"secret,omitempty"`
+}
+
+// CredentialListResponse defines model for CredentialListResponse.
+type CredentialListResponse struct {
+	Items []CredentialResponse `json:"items"`
+}
+
+// CredentialResponse defines model for CredentialResponse.
+type CredentialResponse struct {
+	AllowedOrigins *[]string  `json:"allowedOrigins,omitempty"`
+	CreatedAt      time.Time  `json:"createdAt"`
+	CreatedBy      string     `json:"createdBy"`
+	Dsn            *string    `json:"dsn,omitempty"`
+	EnvironmentId  *string    `json:"environmentId,omitempty"`
+	ExpiresAt      *time.Time `json:"expiresAt,omitempty"`
+	Id             string     `json:"id"`
+	Kind           string     `json:"kind"`
+	LastUsedAt     *time.Time `json:"lastUsedAt,omitempty"`
+	Name           string     `json:"name"`
+	OrganizationId string     `json:"organizationId"`
+	Prefix         string     `json:"prefix"`
+	ProjectId      string     `json:"projectId"`
+	PublicKey      *string    `json:"publicKey,omitempty"`
+	RevokedAt      *time.Time `json:"revokedAt,omitempty"`
+	Scopes         *[]string  `json:"scopes,omitempty"`
+}
+
+// EnvironmentListResponse defines model for EnvironmentListResponse.
+type EnvironmentListResponse struct {
+	Items []EnvironmentResponse `json:"items"`
+}
+
+// EnvironmentResponse defines model for EnvironmentResponse.
+type EnvironmentResponse struct {
+	CreatedAt      time.Time `json:"createdAt"`
+	Id             string    `json:"id"`
+	IsProtected    bool      `json:"isProtected"`
+	Name           string    `json:"name"`
+	OrganizationId string    `json:"organizationId"`
+	ProjectId      string    `json:"projectId"`
+	UpdatedAt      time.Time `json:"updatedAt"`
+}
 
 // ErrorBody defines model for ErrorBody.
 type ErrorBody struct {
@@ -34,6 +257,145 @@ type ErrorResponse struct {
 	Error ErrorBody `json:"error"`
 }
 
+// InvitationListResponse defines model for InvitationListResponse.
+type InvitationListResponse struct {
+	Items []InvitationResponse `json:"items"`
+}
+
+// InvitationResponse defines model for InvitationResponse.
+type InvitationResponse struct {
+	CreatedAt      time.Time `json:"createdAt"`
+	Email          string    `json:"email"`
+	ExpiresAt      time.Time `json:"expiresAt"`
+	Id             string    `json:"id"`
+	InvitedBy      string    `json:"invitedBy"`
+	OrganizationId string    `json:"organizationId"`
+	Role           string    `json:"role"`
+}
+
+// LoginRequest defines model for LoginRequest.
+type LoginRequest struct {
+	Email    string `json:"email"`
+	Password string `json:"password"`
+}
+
+// MFAChallengeResponse defines model for MFAChallengeResponse.
+type MFAChallengeResponse struct {
+	CsrfToken   string    `json:"csrfToken"`
+	ExpiresAt   time.Time `json:"expiresAt"`
+	MfaRequired bool      `json:"mfaRequired"`
+}
+
+// MFASetupResponse defines model for MFASetupResponse.
+type MFASetupResponse struct {
+	OtpauthUri string `json:"otpauthUri"`
+	Secret     string `json:"secret"`
+}
+
+// MFAVerifyRequest defines model for MFAVerifyRequest.
+type MFAVerifyRequest struct {
+	Code         *string `json:"code,omitempty"`
+	RecoveryCode *string `json:"recoveryCode,omitempty"`
+}
+
+// MFAVerifyResponse defines model for MFAVerifyResponse.
+type MFAVerifyResponse struct {
+	CsrfToken     string    `json:"csrfToken"`
+	ExpiresAt     time.Time `json:"expiresAt"`
+	RecoveryCodes *[]string `json:"recoveryCodes,omitempty"`
+	User          AuthUser  `json:"user"`
+}
+
+// MemberListResponse defines model for MemberListResponse.
+type MemberListResponse struct {
+	Items []MemberResponse `json:"items"`
+}
+
+// MemberResponse defines model for MemberResponse.
+type MemberResponse struct {
+	CreatedAt      time.Time `json:"createdAt"`
+	Email          string    `json:"email"`
+	Id             string    `json:"id"`
+	Name           string    `json:"name"`
+	OrganizationId string    `json:"organizationId"`
+	Role           string    `json:"role"`
+	Status         string    `json:"status"`
+	UserId         string    `json:"userId"`
+}
+
+// OrganizationResponse defines model for OrganizationResponse.
+type OrganizationResponse struct {
+	CreatedAt  time.Time  `json:"createdAt"`
+	Id         string     `json:"id"`
+	Name       string     `json:"name"`
+	PurgeAfter *time.Time `json:"purgeAfter,omitempty"`
+	Slug       string     `json:"slug"`
+	Status     string     `json:"status"`
+}
+
+// OrganizationSummary defines model for OrganizationSummary.
+type OrganizationSummary struct {
+	MembershipStatus string `json:"membershipStatus"`
+	Name             string `json:"name"`
+	OrgStatus        string `json:"orgStatus"`
+	OrganizationId   string `json:"organizationId"`
+	Role             string `json:"role"`
+	Slug             string `json:"slug"`
+}
+
+// OrganizationSummaryListResponse defines model for OrganizationSummaryListResponse.
+type OrganizationSummaryListResponse struct {
+	Items []OrganizationSummary `json:"items"`
+}
+
+// PasswordForgotRequest defines model for PasswordForgotRequest.
+type PasswordForgotRequest struct {
+	Email string `json:"email"`
+}
+
+// PasswordResetRequest defines model for PasswordResetRequest.
+type PasswordResetRequest struct {
+	Password string `json:"password"`
+	Token    string `json:"token"`
+}
+
+// ProjectListResponse defines model for ProjectListResponse.
+type ProjectListResponse struct {
+	Items []ProjectResponse `json:"items"`
+}
+
+// ProjectResponse defines model for ProjectResponse.
+type ProjectResponse struct {
+	CreatedAt      time.Time  `json:"createdAt"`
+	DeletedAt      *time.Time `json:"deletedAt,omitempty"`
+	Id             string     `json:"id"`
+	Name           string     `json:"name"`
+	OrganizationId string     `json:"organizationId"`
+	Platform       string     `json:"platform"`
+	PublicId       int64      `json:"publicId"`
+	Slug           string     `json:"slug"`
+	Status         string     `json:"status"`
+	UpdatedAt      time.Time  `json:"updatedAt"`
+}
+
+// ReauthRequest defines model for ReauthRequest.
+type ReauthRequest struct {
+	Code     *string `json:"code,omitempty"`
+	Password string  `json:"password"`
+}
+
+// RegisterRequest defines model for RegisterRequest.
+type RegisterRequest struct {
+	Email    string `json:"email"`
+	Name     string `json:"name"`
+	Password string `json:"password"`
+}
+
+// RotateCredentialRequest defines model for RotateCredentialRequest.
+type RotateCredentialRequest struct {
+	OverlapSeconds *int `json:"overlapSeconds,omitempty"`
+}
+
 // StatusResponse defines model for StatusResponse.
 type StatusResponse struct {
 	// Commit Example: none
@@ -49,8 +411,438 @@ type StatusResponse struct {
 	Version string `json:"version"`
 }
 
+// TeamListResponse defines model for TeamListResponse.
+type TeamListResponse struct {
+	Items []TeamResponse `json:"items"`
+}
+
+// TeamResponse defines model for TeamResponse.
+type TeamResponse struct {
+	CreatedAt      time.Time `json:"createdAt"`
+	Id             string    `json:"id"`
+	Name           string    `json:"name"`
+	OrganizationId string    `json:"organizationId"`
+	Slug           string    `json:"slug"`
+}
+
+// TransferOwnershipRequest defines model for TransferOwnershipRequest.
+type TransferOwnershipRequest struct {
+	ConfirmSlug    string `json:"confirmSlug"`
+	NewOwnerUserId string `json:"newOwnerUserId"`
+}
+
+// UpdateMemberRoleRequest defines model for UpdateMemberRoleRequest.
+type UpdateMemberRoleRequest struct {
+	Role UpdateMemberRoleRequestRole `json:"role"`
+}
+
+// UpdateMemberRoleRequestRole defines model for UpdateMemberRoleRequest.Role.
+type UpdateMemberRoleRequestRole string
+
+// UpdateOrganizationRequest defines model for UpdateOrganizationRequest.
+type UpdateOrganizationRequest struct {
+	Name string `json:"name"`
+}
+
+// UpdateProjectRequest defines model for UpdateProjectRequest.
+type UpdateProjectRequest struct {
+	Name     string `json:"name"`
+	Platform string `json:"platform"`
+}
+
+// VerifyEmailRequest defines model for VerifyEmailRequest.
+type VerifyEmailRequest struct {
+	Token string `json:"token"`
+}
+
+// CSRFTokenHeader defines model for CSRFTokenHeader.
+type CSRFTokenHeader = string
+
+// CredentialIDPath defines model for CredentialIDPath.
+type CredentialIDPath = string
+
+// EnvironmentIDPath defines model for EnvironmentIDPath.
+type EnvironmentIDPath = string
+
+// InvitationIDPath defines model for InvitationIDPath.
+type InvitationIDPath = string
+
+// MemberIDPath defines model for MemberIDPath.
+type MemberIDPath = string
+
+// OrgIDPath defines model for OrgIDPath.
+type OrgIDPath = string
+
+// ProjectIDPath defines model for ProjectIDPath.
+type ProjectIDPath = string
+
+// TeamIDPath defines model for TeamIDPath.
+type TeamIDPath = string
+
+// BadRequest defines model for BadRequest.
+type BadRequest = ErrorResponse
+
+// Conflict defines model for Conflict.
+type Conflict = ErrorResponse
+
+// DefaultError defines model for DefaultError.
+type DefaultError = ErrorResponse
+
+// Forbidden defines model for Forbidden.
+type Forbidden = ErrorResponse
+
+// NotFound defines model for NotFound.
+type NotFound = ErrorResponse
+
+// RateLimited defines model for RateLimited.
+type RateLimited = ErrorResponse
+
+// ServiceUnavailable defines model for ServiceUnavailable.
+type ServiceUnavailable = ErrorResponse
+
+// Unauthorized defines model for Unauthorized.
+type Unauthorized = ErrorResponse
+
+// AuthLogoutParams defines parameters for AuthLogout.
+type AuthLogoutParams struct {
+	// XCSRFToken Session-bound CSRF token required on state-changing cookie-authenticated requests (ADR-005).
+	XCSRFToken CSRFTokenHeader `json:"X-CSRF-Token"`
+}
+
+// AuthMFASetupParams defines parameters for AuthMFASetup.
+type AuthMFASetupParams struct {
+	// XCSRFToken Session-bound CSRF token required on state-changing cookie-authenticated requests (ADR-005).
+	XCSRFToken CSRFTokenHeader `json:"X-CSRF-Token"`
+}
+
+// AuthMFAVerifyParams defines parameters for AuthMFAVerify.
+type AuthMFAVerifyParams struct {
+	// XCSRFToken Session-bound CSRF token required on state-changing cookie-authenticated requests (ADR-005).
+	XCSRFToken CSRFTokenHeader `json:"X-CSRF-Token"`
+}
+
+// AuthReauthParams defines parameters for AuthReauth.
+type AuthReauthParams struct {
+	// XCSRFToken Session-bound CSRF token required on state-changing cookie-authenticated requests (ADR-005).
+	XCSRFToken CSRFTokenHeader `json:"X-CSRF-Token"`
+}
+
+// AuthRefreshParams defines parameters for AuthRefresh.
+type AuthRefreshParams struct {
+	// XCSRFToken Session-bound CSRF token required on state-changing cookie-authenticated requests (ADR-005).
+	XCSRFToken CSRFTokenHeader `json:"X-CSRF-Token"`
+}
+
+// AcceptOrganizationInvitationParams defines parameters for AcceptOrganizationInvitation.
+type AcceptOrganizationInvitationParams struct {
+	// XCSRFToken Session-bound CSRF token required on state-changing cookie-authenticated requests (ADR-005).
+	XCSRFToken CSRFTokenHeader `json:"X-CSRF-Token"`
+}
+
+// CreateOrganizationParams defines parameters for CreateOrganization.
+type CreateOrganizationParams struct {
+	// XCSRFToken Session-bound CSRF token required on state-changing cookie-authenticated requests (ADR-005).
+	XCSRFToken CSRFTokenHeader `json:"X-CSRF-Token"`
+}
+
+// DeleteOrganizationParams defines parameters for DeleteOrganization.
+type DeleteOrganizationParams struct {
+	// XCSRFToken Session-bound CSRF token required on state-changing cookie-authenticated requests (ADR-005).
+	XCSRFToken CSRFTokenHeader `json:"X-CSRF-Token"`
+}
+
+// UpdateOrganizationParams defines parameters for UpdateOrganization.
+type UpdateOrganizationParams struct {
+	// XCSRFToken Session-bound CSRF token required on state-changing cookie-authenticated requests (ADR-005).
+	XCSRFToken CSRFTokenHeader `json:"X-CSRF-Token"`
+}
+
+// ListOrganizationAuditLogsParams defines parameters for ListOrganizationAuditLogs.
+type ListOrganizationAuditLogsParams struct {
+	// Limit Maximum number of records to return (default 50, max 100).
+	Limit *int `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Cursor Opaque keyset pagination cursor from a previous response.
+	Cursor *string `form:"cursor,omitempty" json:"cursor,omitempty"`
+}
+
+// RevokeOrganizationCredentialParams defines parameters for RevokeOrganizationCredential.
+type RevokeOrganizationCredentialParams struct {
+	// XCSRFToken Session-bound CSRF token required on state-changing cookie-authenticated requests (ADR-005).
+	XCSRFToken CSRFTokenHeader `json:"X-CSRF-Token"`
+}
+
+// RotateOrganizationCredentialParams defines parameters for RotateOrganizationCredential.
+type RotateOrganizationCredentialParams struct {
+	// XCSRFToken Session-bound CSRF token required on state-changing cookie-authenticated requests (ADR-005).
+	XCSRFToken CSRFTokenHeader `json:"X-CSRF-Token"`
+}
+
+// DeleteProjectEnvironmentParams defines parameters for DeleteProjectEnvironment.
+type DeleteProjectEnvironmentParams struct {
+	// XCSRFToken Session-bound CSRF token required on state-changing cookie-authenticated requests (ADR-005).
+	XCSRFToken CSRFTokenHeader `json:"X-CSRF-Token"`
+}
+
+// CreateOrganizationInvitationParams defines parameters for CreateOrganizationInvitation.
+type CreateOrganizationInvitationParams struct {
+	// XCSRFToken Session-bound CSRF token required on state-changing cookie-authenticated requests (ADR-005).
+	XCSRFToken CSRFTokenHeader `json:"X-CSRF-Token"`
+}
+
+// RevokeOrganizationInvitationParams defines parameters for RevokeOrganizationInvitation.
+type RevokeOrganizationInvitationParams struct {
+	// XCSRFToken Session-bound CSRF token required on state-changing cookie-authenticated requests (ADR-005).
+	XCSRFToken CSRFTokenHeader `json:"X-CSRF-Token"`
+}
+
+// RemoveOrganizationMemberParams defines parameters for RemoveOrganizationMember.
+type RemoveOrganizationMemberParams struct {
+	// XCSRFToken Session-bound CSRF token required on state-changing cookie-authenticated requests (ADR-005).
+	XCSRFToken CSRFTokenHeader `json:"X-CSRF-Token"`
+}
+
+// UpdateOrganizationMemberParams defines parameters for UpdateOrganizationMember.
+type UpdateOrganizationMemberParams struct {
+	// XCSRFToken Session-bound CSRF token required on state-changing cookie-authenticated requests (ADR-005).
+	XCSRFToken CSRFTokenHeader `json:"X-CSRF-Token"`
+}
+
+// ListOrganizationProjectsParams defines parameters for ListOrganizationProjects.
+type ListOrganizationProjectsParams struct {
+	Limit *int `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
+// CreateOrganizationProjectParams defines parameters for CreateOrganizationProject.
+type CreateOrganizationProjectParams struct {
+	// XCSRFToken Session-bound CSRF token required on state-changing cookie-authenticated requests (ADR-005).
+	XCSRFToken CSRFTokenHeader `json:"X-CSRF-Token"`
+}
+
+// DeleteOrganizationProjectParams defines parameters for DeleteOrganizationProject.
+type DeleteOrganizationProjectParams struct {
+	// XCSRFToken Session-bound CSRF token required on state-changing cookie-authenticated requests (ADR-005).
+	XCSRFToken CSRFTokenHeader `json:"X-CSRF-Token"`
+}
+
+// UpdateOrganizationProjectParams defines parameters for UpdateOrganizationProject.
+type UpdateOrganizationProjectParams struct {
+	// XCSRFToken Session-bound CSRF token required on state-changing cookie-authenticated requests (ADR-005).
+	XCSRFToken CSRFTokenHeader `json:"X-CSRF-Token"`
+}
+
+// CreateProjectCredentialParams defines parameters for CreateProjectCredential.
+type CreateProjectCredentialParams struct {
+	// XCSRFToken Session-bound CSRF token required on state-changing cookie-authenticated requests (ADR-005).
+	XCSRFToken CSRFTokenHeader `json:"X-CSRF-Token"`
+}
+
+// CreateProjectEnvironmentParams defines parameters for CreateProjectEnvironment.
+type CreateProjectEnvironmentParams struct {
+	// XCSRFToken Session-bound CSRF token required on state-changing cookie-authenticated requests (ADR-005).
+	XCSRFToken CSRFTokenHeader `json:"X-CSRF-Token"`
+}
+
+// CreateOrganizationTeamParams defines parameters for CreateOrganizationTeam.
+type CreateOrganizationTeamParams struct {
+	// XCSRFToken Session-bound CSRF token required on state-changing cookie-authenticated requests (ADR-005).
+	XCSRFToken CSRFTokenHeader `json:"X-CSRF-Token"`
+}
+
+// DeleteOrganizationTeamParams defines parameters for DeleteOrganizationTeam.
+type DeleteOrganizationTeamParams struct {
+	// XCSRFToken Session-bound CSRF token required on state-changing cookie-authenticated requests (ADR-005).
+	XCSRFToken CSRFTokenHeader `json:"X-CSRF-Token"`
+}
+
+// TransferOrganizationOwnershipParams defines parameters for TransferOrganizationOwnership.
+type TransferOrganizationOwnershipParams struct {
+	// XCSRFToken Session-bound CSRF token required on state-changing cookie-authenticated requests (ADR-005).
+	XCSRFToken CSRFTokenHeader `json:"X-CSRF-Token"`
+}
+
+// AuthLoginJSONRequestBody defines body for AuthLogin for application/json ContentType.
+type AuthLoginJSONRequestBody = LoginRequest
+
+// AuthMFAVerifyJSONRequestBody defines body for AuthMFAVerify for application/json ContentType.
+type AuthMFAVerifyJSONRequestBody = MFAVerifyRequest
+
+// AuthPasswordForgotJSONRequestBody defines body for AuthPasswordForgot for application/json ContentType.
+type AuthPasswordForgotJSONRequestBody = PasswordForgotRequest
+
+// AuthPasswordResetJSONRequestBody defines body for AuthPasswordReset for application/json ContentType.
+type AuthPasswordResetJSONRequestBody = PasswordResetRequest
+
+// AuthReauthJSONRequestBody defines body for AuthReauth for application/json ContentType.
+type AuthReauthJSONRequestBody = ReauthRequest
+
+// AuthRegisterJSONRequestBody defines body for AuthRegister for application/json ContentType.
+type AuthRegisterJSONRequestBody = RegisterRequest
+
+// AuthVerifyEmailJSONRequestBody defines body for AuthVerifyEmail for application/json ContentType.
+type AuthVerifyEmailJSONRequestBody = VerifyEmailRequest
+
+// AcceptOrganizationInvitationJSONRequestBody defines body for AcceptOrganizationInvitation for application/json ContentType.
+type AcceptOrganizationInvitationJSONRequestBody = AcceptInvitationRequest
+
+// CreateOrganizationJSONRequestBody defines body for CreateOrganization for application/json ContentType.
+type CreateOrganizationJSONRequestBody = CreateOrganizationRequest
+
+// DeleteOrganizationJSONRequestBody defines body for DeleteOrganization for application/json ContentType.
+type DeleteOrganizationJSONRequestBody = ConfirmSlugRequest
+
+// UpdateOrganizationJSONRequestBody defines body for UpdateOrganization for application/json ContentType.
+type UpdateOrganizationJSONRequestBody = UpdateOrganizationRequest
+
+// RotateOrganizationCredentialJSONRequestBody defines body for RotateOrganizationCredential for application/json ContentType.
+type RotateOrganizationCredentialJSONRequestBody = RotateCredentialRequest
+
+// CreateOrganizationInvitationJSONRequestBody defines body for CreateOrganizationInvitation for application/json ContentType.
+type CreateOrganizationInvitationJSONRequestBody = CreateInvitationRequest
+
+// UpdateOrganizationMemberJSONRequestBody defines body for UpdateOrganizationMember for application/json ContentType.
+type UpdateOrganizationMemberJSONRequestBody = UpdateMemberRoleRequest
+
+// CreateOrganizationProjectJSONRequestBody defines body for CreateOrganizationProject for application/json ContentType.
+type CreateOrganizationProjectJSONRequestBody = CreateProjectRequest
+
+// DeleteOrganizationProjectJSONRequestBody defines body for DeleteOrganizationProject for application/json ContentType.
+type DeleteOrganizationProjectJSONRequestBody = ConfirmSlugRequest
+
+// UpdateOrganizationProjectJSONRequestBody defines body for UpdateOrganizationProject for application/json ContentType.
+type UpdateOrganizationProjectJSONRequestBody = UpdateProjectRequest
+
+// CreateProjectCredentialJSONRequestBody defines body for CreateProjectCredential for application/json ContentType.
+type CreateProjectCredentialJSONRequestBody = CreateCredentialRequest
+
+// CreateProjectEnvironmentJSONRequestBody defines body for CreateProjectEnvironment for application/json ContentType.
+type CreateProjectEnvironmentJSONRequestBody = CreateEnvironmentRequest
+
+// CreateOrganizationTeamJSONRequestBody defines body for CreateOrganizationTeam for application/json ContentType.
+type CreateOrganizationTeamJSONRequestBody = CreateTeamRequest
+
+// TransferOrganizationOwnershipJSONRequestBody defines body for TransferOrganizationOwnership for application/json ContentType.
+type TransferOrganizationOwnershipJSONRequestBody = TransferOwnershipRequest
+
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
+	// AuthLogin Authenticate with email and password
+	// (POST /auth/login)
+	AuthLogin(w http.ResponseWriter, r *http.Request)
+	// AuthLogout Revoke the active session and clear the session cookie
+	// (POST /auth/logout)
+	AuthLogout(w http.ResponseWriter, r *http.Request, params AuthLogoutParams)
+	// AuthMFASetup Begin TOTP MFA enrollment (requires recent authentication)
+	// (POST /auth/mfa/setup)
+	AuthMFASetup(w http.ResponseWriter, r *http.Request, params AuthMFASetupParams)
+	// AuthMFAVerify Verify TOTP or recovery code (completes MFA setup or two-step login)
+	// (POST /auth/mfa/verify)
+	AuthMFAVerify(w http.ResponseWriter, r *http.Request, params AuthMFAVerifyParams)
+	// AuthPasswordForgot Request a password reset email
+	// (POST /auth/password/forgot)
+	AuthPasswordForgot(w http.ResponseWriter, r *http.Request)
+	// AuthPasswordReset Reset password using a single-use reset token and revoke all sessions
+	// (POST /auth/password/reset)
+	AuthPasswordReset(w http.ResponseWriter, r *http.Request)
+	// AuthReauth Re-authenticate an active session for high-risk operations
+	// (POST /auth/reauth)
+	AuthReauth(w http.ResponseWriter, r *http.Request, params AuthReauthParams)
+	// AuthRefresh Rotate and extend the active sliding session
+	// (POST /auth/refresh)
+	AuthRefresh(w http.ResponseWriter, r *http.Request, params AuthRefreshParams)
+	// AuthRegister Register a new user account
+	// (POST /auth/register)
+	AuthRegister(w http.ResponseWriter, r *http.Request)
+	// AuthVerifyEmail Verify a user email address using a single-use token
+	// (POST /auth/verify-email)
+	AuthVerifyEmail(w http.ResponseWriter, r *http.Request)
+	// AcceptOrganizationInvitation Accept a pending organization invitation using its single-use token
+	// (POST /invitations/accept)
+	AcceptOrganizationInvitation(w http.ResponseWriter, r *http.Request, params AcceptOrganizationInvitationParams)
+	// ListOrganizations List organizations the authenticated user belongs to
+	// (GET /organizations)
+	ListOrganizations(w http.ResponseWriter, r *http.Request)
+	// CreateOrganization Create a new organization
+	// (POST /organizations)
+	CreateOrganization(w http.ResponseWriter, r *http.Request, params CreateOrganizationParams)
+	// DeleteOrganization Soft-delete an organization (requires recent auth and slug confirmation)
+	// (DELETE /organizations/{orgId})
+	DeleteOrganization(w http.ResponseWriter, r *http.Request, orgId OrgIDPath, params DeleteOrganizationParams)
+	// GetOrganization Get organization details
+	// (GET /organizations/{orgId})
+	GetOrganization(w http.ResponseWriter, r *http.Request, orgId OrgIDPath)
+	// UpdateOrganization Update organization name
+	// (PATCH /organizations/{orgId})
+	UpdateOrganization(w http.ResponseWriter, r *http.Request, orgId OrgIDPath, params UpdateOrganizationParams)
+	// ListOrganizationAuditLogs List tenant-scoped append-only audit logs with cursor pagination
+	// (GET /organizations/{orgId}/audit-logs)
+	ListOrganizationAuditLogs(w http.ResponseWriter, r *http.Request, orgId OrgIDPath, params ListOrganizationAuditLogsParams)
+	// RevokeOrganizationCredential Immediately revoke an API credential and evict its cache entry
+	// (POST /organizations/{orgId}/credentials/{credentialId}/revoke)
+	RevokeOrganizationCredential(w http.ResponseWriter, r *http.Request, orgId OrgIDPath, credentialId CredentialIDPath, params RevokeOrganizationCredentialParams)
+	// RotateOrganizationCredential Rotate an API credential with optional overlap window (new secret shown once)
+	// (POST /organizations/{orgId}/credentials/{credentialId}/rotate)
+	RotateOrganizationCredential(w http.ResponseWriter, r *http.Request, orgId OrgIDPath, credentialId CredentialIDPath, params RotateOrganizationCredentialParams)
+	// DeleteProjectEnvironment Delete a non-protected environment
+	// (DELETE /organizations/{orgId}/environments/{environmentId})
+	DeleteProjectEnvironment(w http.ResponseWriter, r *http.Request, orgId OrgIDPath, environmentId EnvironmentIDPath, params DeleteProjectEnvironmentParams)
+	// ListOrganizationInvitations List pending organization invitations
+	// (GET /organizations/{orgId}/invitations)
+	ListOrganizationInvitations(w http.ResponseWriter, r *http.Request, orgId OrgIDPath)
+	// CreateOrganizationInvitation Invite a user to the organization by email
+	// (POST /organizations/{orgId}/invitations)
+	CreateOrganizationInvitation(w http.ResponseWriter, r *http.Request, orgId OrgIDPath, params CreateOrganizationInvitationParams)
+	// RevokeOrganizationInvitation Revoke a pending organization invitation
+	// (DELETE /organizations/{orgId}/invitations/{invitationId})
+	RevokeOrganizationInvitation(w http.ResponseWriter, r *http.Request, orgId OrgIDPath, invitationId InvitationIDPath, params RevokeOrganizationInvitationParams)
+	// ListOrganizationMembers List active organization members
+	// (GET /organizations/{orgId}/members)
+	ListOrganizationMembers(w http.ResponseWriter, r *http.Request, orgId OrgIDPath)
+	// RemoveOrganizationMember Remove a member from the organization
+	// (DELETE /organizations/{orgId}/members/{memberId})
+	RemoveOrganizationMember(w http.ResponseWriter, r *http.Request, orgId OrgIDPath, memberId MemberIDPath, params RemoveOrganizationMemberParams)
+	// UpdateOrganizationMember Update a member's role
+	// (PATCH /organizations/{orgId}/members/{memberId})
+	UpdateOrganizationMember(w http.ResponseWriter, r *http.Request, orgId OrgIDPath, memberId MemberIDPath, params UpdateOrganizationMemberParams)
+	// ListOrganizationProjects List active projects in the organization
+	// (GET /organizations/{orgId}/projects)
+	ListOrganizationProjects(w http.ResponseWriter, r *http.Request, orgId OrgIDPath, params ListOrganizationProjectsParams)
+	// CreateOrganizationProject Create a new project in the organization
+	// (POST /organizations/{orgId}/projects)
+	CreateOrganizationProject(w http.ResponseWriter, r *http.Request, orgId OrgIDPath, params CreateOrganizationProjectParams)
+	// DeleteOrganizationProject Soft-delete a project and immediately revoke all its API credentials
+	// (DELETE /organizations/{orgId}/projects/{projectId})
+	DeleteOrganizationProject(w http.ResponseWriter, r *http.Request, orgId OrgIDPath, projectId ProjectIDPath, params DeleteOrganizationProjectParams)
+	// GetOrganizationProject Get project details
+	// (GET /organizations/{orgId}/projects/{projectId})
+	GetOrganizationProject(w http.ResponseWriter, r *http.Request, orgId OrgIDPath, projectId ProjectIDPath)
+	// UpdateOrganizationProject Update project name and platform
+	// (PATCH /organizations/{orgId}/projects/{projectId})
+	UpdateOrganizationProject(w http.ResponseWriter, r *http.Request, orgId OrgIDPath, projectId ProjectIDPath, params UpdateOrganizationProjectParams)
+	// ListProjectCredentials List API credentials metadata for a project (never returns secrets)
+	// (GET /organizations/{orgId}/projects/{projectId}/credentials)
+	ListProjectCredentials(w http.ResponseWriter, r *http.Request, orgId OrgIDPath, projectId ProjectIDPath)
+	// CreateProjectCredential Create a new API credential (secret shown once)
+	// (POST /organizations/{orgId}/projects/{projectId}/credentials)
+	CreateProjectCredential(w http.ResponseWriter, r *http.Request, orgId OrgIDPath, projectId ProjectIDPath, params CreateProjectCredentialParams)
+	// ListProjectEnvironments List environments for a project
+	// (GET /organizations/{orgId}/projects/{projectId}/environments)
+	ListProjectEnvironments(w http.ResponseWriter, r *http.Request, orgId OrgIDPath, projectId ProjectIDPath)
+	// CreateProjectEnvironment Create an environment for a project
+	// (POST /organizations/{orgId}/projects/{projectId}/environments)
+	CreateProjectEnvironment(w http.ResponseWriter, r *http.Request, orgId OrgIDPath, projectId ProjectIDPath, params CreateProjectEnvironmentParams)
+	// ListOrganizationTeams List teams in the organization
+	// (GET /organizations/{orgId}/teams)
+	ListOrganizationTeams(w http.ResponseWriter, r *http.Request, orgId OrgIDPath)
+	// CreateOrganizationTeam Create a team in the organization
+	// (POST /organizations/{orgId}/teams)
+	CreateOrganizationTeam(w http.ResponseWriter, r *http.Request, orgId OrgIDPath, params CreateOrganizationTeamParams)
+	// DeleteOrganizationTeam Delete a team in the organization
+	// (DELETE /organizations/{orgId}/teams/{teamId})
+	DeleteOrganizationTeam(w http.ResponseWriter, r *http.Request, orgId OrgIDPath, teamId TeamIDPath, params DeleteOrganizationTeamParams)
+	// TransferOrganizationOwnership Transfer organization ownership to another active member
+	// (POST /organizations/{orgId}/transfer-ownership)
+	TransferOrganizationOwnership(w http.ResponseWriter, r *http.Request, orgId OrgIDPath, params TransferOrganizationOwnershipParams)
 	// GetStatus API status and build metadata
 	// (GET /status)
 	GetStatus(w http.ResponseWriter, r *http.Request)
@@ -58,6 +850,240 @@ type ServerInterface interface {
 
 // Unimplemented server implementation that returns http.StatusNotImplemented for each endpoint.
 type Unimplemented struct{}
+
+// AuthLogin Authenticate with email and password
+// (POST /auth/login)
+func (_ Unimplemented) AuthLogin(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// AuthLogout Revoke the active session and clear the session cookie
+// (POST /auth/logout)
+func (_ Unimplemented) AuthLogout(w http.ResponseWriter, r *http.Request, params AuthLogoutParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// AuthMFASetup Begin TOTP MFA enrollment (requires recent authentication)
+// (POST /auth/mfa/setup)
+func (_ Unimplemented) AuthMFASetup(w http.ResponseWriter, r *http.Request, params AuthMFASetupParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// AuthMFAVerify Verify TOTP or recovery code (completes MFA setup or two-step login)
+// (POST /auth/mfa/verify)
+func (_ Unimplemented) AuthMFAVerify(w http.ResponseWriter, r *http.Request, params AuthMFAVerifyParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// AuthPasswordForgot Request a password reset email
+// (POST /auth/password/forgot)
+func (_ Unimplemented) AuthPasswordForgot(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// AuthPasswordReset Reset password using a single-use reset token and revoke all sessions
+// (POST /auth/password/reset)
+func (_ Unimplemented) AuthPasswordReset(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// AuthReauth Re-authenticate an active session for high-risk operations
+// (POST /auth/reauth)
+func (_ Unimplemented) AuthReauth(w http.ResponseWriter, r *http.Request, params AuthReauthParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// AuthRefresh Rotate and extend the active sliding session
+// (POST /auth/refresh)
+func (_ Unimplemented) AuthRefresh(w http.ResponseWriter, r *http.Request, params AuthRefreshParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// AuthRegister Register a new user account
+// (POST /auth/register)
+func (_ Unimplemented) AuthRegister(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// AuthVerifyEmail Verify a user email address using a single-use token
+// (POST /auth/verify-email)
+func (_ Unimplemented) AuthVerifyEmail(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// AcceptOrganizationInvitation Accept a pending organization invitation using its single-use token
+// (POST /invitations/accept)
+func (_ Unimplemented) AcceptOrganizationInvitation(w http.ResponseWriter, r *http.Request, params AcceptOrganizationInvitationParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// ListOrganizations List organizations the authenticated user belongs to
+// (GET /organizations)
+func (_ Unimplemented) ListOrganizations(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// CreateOrganization Create a new organization
+// (POST /organizations)
+func (_ Unimplemented) CreateOrganization(w http.ResponseWriter, r *http.Request, params CreateOrganizationParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// DeleteOrganization Soft-delete an organization (requires recent auth and slug confirmation)
+// (DELETE /organizations/{orgId})
+func (_ Unimplemented) DeleteOrganization(w http.ResponseWriter, r *http.Request, orgId OrgIDPath, params DeleteOrganizationParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// GetOrganization Get organization details
+// (GET /organizations/{orgId})
+func (_ Unimplemented) GetOrganization(w http.ResponseWriter, r *http.Request, orgId OrgIDPath) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// UpdateOrganization Update organization name
+// (PATCH /organizations/{orgId})
+func (_ Unimplemented) UpdateOrganization(w http.ResponseWriter, r *http.Request, orgId OrgIDPath, params UpdateOrganizationParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// ListOrganizationAuditLogs List tenant-scoped append-only audit logs with cursor pagination
+// (GET /organizations/{orgId}/audit-logs)
+func (_ Unimplemented) ListOrganizationAuditLogs(w http.ResponseWriter, r *http.Request, orgId OrgIDPath, params ListOrganizationAuditLogsParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// RevokeOrganizationCredential Immediately revoke an API credential and evict its cache entry
+// (POST /organizations/{orgId}/credentials/{credentialId}/revoke)
+func (_ Unimplemented) RevokeOrganizationCredential(w http.ResponseWriter, r *http.Request, orgId OrgIDPath, credentialId CredentialIDPath, params RevokeOrganizationCredentialParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// RotateOrganizationCredential Rotate an API credential with optional overlap window (new secret shown once)
+// (POST /organizations/{orgId}/credentials/{credentialId}/rotate)
+func (_ Unimplemented) RotateOrganizationCredential(w http.ResponseWriter, r *http.Request, orgId OrgIDPath, credentialId CredentialIDPath, params RotateOrganizationCredentialParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// DeleteProjectEnvironment Delete a non-protected environment
+// (DELETE /organizations/{orgId}/environments/{environmentId})
+func (_ Unimplemented) DeleteProjectEnvironment(w http.ResponseWriter, r *http.Request, orgId OrgIDPath, environmentId EnvironmentIDPath, params DeleteProjectEnvironmentParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// ListOrganizationInvitations List pending organization invitations
+// (GET /organizations/{orgId}/invitations)
+func (_ Unimplemented) ListOrganizationInvitations(w http.ResponseWriter, r *http.Request, orgId OrgIDPath) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// CreateOrganizationInvitation Invite a user to the organization by email
+// (POST /organizations/{orgId}/invitations)
+func (_ Unimplemented) CreateOrganizationInvitation(w http.ResponseWriter, r *http.Request, orgId OrgIDPath, params CreateOrganizationInvitationParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// RevokeOrganizationInvitation Revoke a pending organization invitation
+// (DELETE /organizations/{orgId}/invitations/{invitationId})
+func (_ Unimplemented) RevokeOrganizationInvitation(w http.ResponseWriter, r *http.Request, orgId OrgIDPath, invitationId InvitationIDPath, params RevokeOrganizationInvitationParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// ListOrganizationMembers List active organization members
+// (GET /organizations/{orgId}/members)
+func (_ Unimplemented) ListOrganizationMembers(w http.ResponseWriter, r *http.Request, orgId OrgIDPath) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// RemoveOrganizationMember Remove a member from the organization
+// (DELETE /organizations/{orgId}/members/{memberId})
+func (_ Unimplemented) RemoveOrganizationMember(w http.ResponseWriter, r *http.Request, orgId OrgIDPath, memberId MemberIDPath, params RemoveOrganizationMemberParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// UpdateOrganizationMember Update a member's role
+// (PATCH /organizations/{orgId}/members/{memberId})
+func (_ Unimplemented) UpdateOrganizationMember(w http.ResponseWriter, r *http.Request, orgId OrgIDPath, memberId MemberIDPath, params UpdateOrganizationMemberParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// ListOrganizationProjects List active projects in the organization
+// (GET /organizations/{orgId}/projects)
+func (_ Unimplemented) ListOrganizationProjects(w http.ResponseWriter, r *http.Request, orgId OrgIDPath, params ListOrganizationProjectsParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// CreateOrganizationProject Create a new project in the organization
+// (POST /organizations/{orgId}/projects)
+func (_ Unimplemented) CreateOrganizationProject(w http.ResponseWriter, r *http.Request, orgId OrgIDPath, params CreateOrganizationProjectParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// DeleteOrganizationProject Soft-delete a project and immediately revoke all its API credentials
+// (DELETE /organizations/{orgId}/projects/{projectId})
+func (_ Unimplemented) DeleteOrganizationProject(w http.ResponseWriter, r *http.Request, orgId OrgIDPath, projectId ProjectIDPath, params DeleteOrganizationProjectParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// GetOrganizationProject Get project details
+// (GET /organizations/{orgId}/projects/{projectId})
+func (_ Unimplemented) GetOrganizationProject(w http.ResponseWriter, r *http.Request, orgId OrgIDPath, projectId ProjectIDPath) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// UpdateOrganizationProject Update project name and platform
+// (PATCH /organizations/{orgId}/projects/{projectId})
+func (_ Unimplemented) UpdateOrganizationProject(w http.ResponseWriter, r *http.Request, orgId OrgIDPath, projectId ProjectIDPath, params UpdateOrganizationProjectParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// ListProjectCredentials List API credentials metadata for a project (never returns secrets)
+// (GET /organizations/{orgId}/projects/{projectId}/credentials)
+func (_ Unimplemented) ListProjectCredentials(w http.ResponseWriter, r *http.Request, orgId OrgIDPath, projectId ProjectIDPath) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// CreateProjectCredential Create a new API credential (secret shown once)
+// (POST /organizations/{orgId}/projects/{projectId}/credentials)
+func (_ Unimplemented) CreateProjectCredential(w http.ResponseWriter, r *http.Request, orgId OrgIDPath, projectId ProjectIDPath, params CreateProjectCredentialParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// ListProjectEnvironments List environments for a project
+// (GET /organizations/{orgId}/projects/{projectId}/environments)
+func (_ Unimplemented) ListProjectEnvironments(w http.ResponseWriter, r *http.Request, orgId OrgIDPath, projectId ProjectIDPath) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// CreateProjectEnvironment Create an environment for a project
+// (POST /organizations/{orgId}/projects/{projectId}/environments)
+func (_ Unimplemented) CreateProjectEnvironment(w http.ResponseWriter, r *http.Request, orgId OrgIDPath, projectId ProjectIDPath, params CreateProjectEnvironmentParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// ListOrganizationTeams List teams in the organization
+// (GET /organizations/{orgId}/teams)
+func (_ Unimplemented) ListOrganizationTeams(w http.ResponseWriter, r *http.Request, orgId OrgIDPath) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// CreateOrganizationTeam Create a team in the organization
+// (POST /organizations/{orgId}/teams)
+func (_ Unimplemented) CreateOrganizationTeam(w http.ResponseWriter, r *http.Request, orgId OrgIDPath, params CreateOrganizationTeamParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// DeleteOrganizationTeam Delete a team in the organization
+// (DELETE /organizations/{orgId}/teams/{teamId})
+func (_ Unimplemented) DeleteOrganizationTeam(w http.ResponseWriter, r *http.Request, orgId OrgIDPath, teamId TeamIDPath, params DeleteOrganizationTeamParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// TransferOrganizationOwnership Transfer organization ownership to another active member
+// (POST /organizations/{orgId}/transfer-ownership)
+func (_ Unimplemented) TransferOrganizationOwnership(w http.ResponseWriter, r *http.Request, orgId OrgIDPath, params TransferOrganizationOwnershipParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
 
 // GetStatus API status and build metadata
 // (GET /status)
@@ -73,6 +1099,1728 @@ type ServerInterfaceWrapper struct {
 }
 
 type MiddlewareFunc func(http.Handler) http.Handler
+
+// AuthLogin operation middleware
+func (siw *ServerInterfaceWrapper) AuthLogin(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.AuthLogin(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// AuthLogout operation middleware
+func (siw *ServerInterfaceWrapper) AuthLogout(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params AuthLogoutParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "X-CSRF-Token" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-CSRF-Token")]; found {
+		var XCSRFToken CSRFTokenHeader
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "X-CSRF-Token", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-CSRF-Token", valueList[0], &XCSRFToken, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "X-CSRF-Token", Err: err})
+			return
+		}
+
+		params.XCSRFToken = XCSRFToken
+
+	} else {
+		err := fmt.Errorf("Header parameter X-CSRF-Token is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "X-CSRF-Token", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.AuthLogout(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// AuthMFASetup operation middleware
+func (siw *ServerInterfaceWrapper) AuthMFASetup(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params AuthMFASetupParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "X-CSRF-Token" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-CSRF-Token")]; found {
+		var XCSRFToken CSRFTokenHeader
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "X-CSRF-Token", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-CSRF-Token", valueList[0], &XCSRFToken, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "X-CSRF-Token", Err: err})
+			return
+		}
+
+		params.XCSRFToken = XCSRFToken
+
+	} else {
+		err := fmt.Errorf("Header parameter X-CSRF-Token is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "X-CSRF-Token", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.AuthMFASetup(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// AuthMFAVerify operation middleware
+func (siw *ServerInterfaceWrapper) AuthMFAVerify(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params AuthMFAVerifyParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "X-CSRF-Token" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-CSRF-Token")]; found {
+		var XCSRFToken CSRFTokenHeader
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "X-CSRF-Token", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-CSRF-Token", valueList[0], &XCSRFToken, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "X-CSRF-Token", Err: err})
+			return
+		}
+
+		params.XCSRFToken = XCSRFToken
+
+	} else {
+		err := fmt.Errorf("Header parameter X-CSRF-Token is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "X-CSRF-Token", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.AuthMFAVerify(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// AuthPasswordForgot operation middleware
+func (siw *ServerInterfaceWrapper) AuthPasswordForgot(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.AuthPasswordForgot(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// AuthPasswordReset operation middleware
+func (siw *ServerInterfaceWrapper) AuthPasswordReset(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.AuthPasswordReset(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// AuthReauth operation middleware
+func (siw *ServerInterfaceWrapper) AuthReauth(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params AuthReauthParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "X-CSRF-Token" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-CSRF-Token")]; found {
+		var XCSRFToken CSRFTokenHeader
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "X-CSRF-Token", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-CSRF-Token", valueList[0], &XCSRFToken, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "X-CSRF-Token", Err: err})
+			return
+		}
+
+		params.XCSRFToken = XCSRFToken
+
+	} else {
+		err := fmt.Errorf("Header parameter X-CSRF-Token is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "X-CSRF-Token", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.AuthReauth(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// AuthRefresh operation middleware
+func (siw *ServerInterfaceWrapper) AuthRefresh(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params AuthRefreshParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "X-CSRF-Token" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-CSRF-Token")]; found {
+		var XCSRFToken CSRFTokenHeader
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "X-CSRF-Token", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-CSRF-Token", valueList[0], &XCSRFToken, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "X-CSRF-Token", Err: err})
+			return
+		}
+
+		params.XCSRFToken = XCSRFToken
+
+	} else {
+		err := fmt.Errorf("Header parameter X-CSRF-Token is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "X-CSRF-Token", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.AuthRefresh(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// AuthRegister operation middleware
+func (siw *ServerInterfaceWrapper) AuthRegister(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.AuthRegister(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// AuthVerifyEmail operation middleware
+func (siw *ServerInterfaceWrapper) AuthVerifyEmail(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.AuthVerifyEmail(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// AcceptOrganizationInvitation operation middleware
+func (siw *ServerInterfaceWrapper) AcceptOrganizationInvitation(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params AcceptOrganizationInvitationParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "X-CSRF-Token" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-CSRF-Token")]; found {
+		var XCSRFToken CSRFTokenHeader
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "X-CSRF-Token", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-CSRF-Token", valueList[0], &XCSRFToken, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "X-CSRF-Token", Err: err})
+			return
+		}
+
+		params.XCSRFToken = XCSRFToken
+
+	} else {
+		err := fmt.Errorf("Header parameter X-CSRF-Token is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "X-CSRF-Token", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.AcceptOrganizationInvitation(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListOrganizations operation middleware
+func (siw *ServerInterfaceWrapper) ListOrganizations(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListOrganizations(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateOrganization operation middleware
+func (siw *ServerInterfaceWrapper) CreateOrganization(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params CreateOrganizationParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "X-CSRF-Token" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-CSRF-Token")]; found {
+		var XCSRFToken CSRFTokenHeader
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "X-CSRF-Token", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-CSRF-Token", valueList[0], &XCSRFToken, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "X-CSRF-Token", Err: err})
+			return
+		}
+
+		params.XCSRFToken = XCSRFToken
+
+	} else {
+		err := fmt.Errorf("Header parameter X-CSRF-Token is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "X-CSRF-Token", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateOrganization(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteOrganization operation middleware
+func (siw *ServerInterfaceWrapper) DeleteOrganization(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "orgId" -------------
+	var orgId OrgIDPath
+
+	err = runtime.BindStyledParameterWithOptions("simple", "orgId", chi.URLParam(r, "orgId"), &orgId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "orgId", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params DeleteOrganizationParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "X-CSRF-Token" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-CSRF-Token")]; found {
+		var XCSRFToken CSRFTokenHeader
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "X-CSRF-Token", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-CSRF-Token", valueList[0], &XCSRFToken, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "X-CSRF-Token", Err: err})
+			return
+		}
+
+		params.XCSRFToken = XCSRFToken
+
+	} else {
+		err := fmt.Errorf("Header parameter X-CSRF-Token is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "X-CSRF-Token", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteOrganization(w, r, orgId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetOrganization operation middleware
+func (siw *ServerInterfaceWrapper) GetOrganization(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "orgId" -------------
+	var orgId OrgIDPath
+
+	err = runtime.BindStyledParameterWithOptions("simple", "orgId", chi.URLParam(r, "orgId"), &orgId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "orgId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetOrganization(w, r, orgId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateOrganization operation middleware
+func (siw *ServerInterfaceWrapper) UpdateOrganization(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "orgId" -------------
+	var orgId OrgIDPath
+
+	err = runtime.BindStyledParameterWithOptions("simple", "orgId", chi.URLParam(r, "orgId"), &orgId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "orgId", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params UpdateOrganizationParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "X-CSRF-Token" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-CSRF-Token")]; found {
+		var XCSRFToken CSRFTokenHeader
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "X-CSRF-Token", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-CSRF-Token", valueList[0], &XCSRFToken, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "X-CSRF-Token", Err: err})
+			return
+		}
+
+		params.XCSRFToken = XCSRFToken
+
+	} else {
+		err := fmt.Errorf("Header parameter X-CSRF-Token is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "X-CSRF-Token", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateOrganization(w, r, orgId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListOrganizationAuditLogs operation middleware
+func (siw *ServerInterfaceWrapper) ListOrganizationAuditLogs(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "orgId" -------------
+	var orgId OrgIDPath
+
+	err = runtime.BindStyledParameterWithOptions("simple", "orgId", chi.URLParam(r, "orgId"), &orgId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "orgId", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListOrganizationAuditLogsParams
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListOrganizationAuditLogs(w, r, orgId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RevokeOrganizationCredential operation middleware
+func (siw *ServerInterfaceWrapper) RevokeOrganizationCredential(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "orgId" -------------
+	var orgId OrgIDPath
+
+	err = runtime.BindStyledParameterWithOptions("simple", "orgId", chi.URLParam(r, "orgId"), &orgId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "orgId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "credentialId" -------------
+	var credentialId CredentialIDPath
+
+	err = runtime.BindStyledParameterWithOptions("simple", "credentialId", chi.URLParam(r, "credentialId"), &credentialId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "credentialId", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params RevokeOrganizationCredentialParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "X-CSRF-Token" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-CSRF-Token")]; found {
+		var XCSRFToken CSRFTokenHeader
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "X-CSRF-Token", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-CSRF-Token", valueList[0], &XCSRFToken, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "X-CSRF-Token", Err: err})
+			return
+		}
+
+		params.XCSRFToken = XCSRFToken
+
+	} else {
+		err := fmt.Errorf("Header parameter X-CSRF-Token is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "X-CSRF-Token", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RevokeOrganizationCredential(w, r, orgId, credentialId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RotateOrganizationCredential operation middleware
+func (siw *ServerInterfaceWrapper) RotateOrganizationCredential(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "orgId" -------------
+	var orgId OrgIDPath
+
+	err = runtime.BindStyledParameterWithOptions("simple", "orgId", chi.URLParam(r, "orgId"), &orgId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "orgId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "credentialId" -------------
+	var credentialId CredentialIDPath
+
+	err = runtime.BindStyledParameterWithOptions("simple", "credentialId", chi.URLParam(r, "credentialId"), &credentialId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "credentialId", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params RotateOrganizationCredentialParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "X-CSRF-Token" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-CSRF-Token")]; found {
+		var XCSRFToken CSRFTokenHeader
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "X-CSRF-Token", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-CSRF-Token", valueList[0], &XCSRFToken, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "X-CSRF-Token", Err: err})
+			return
+		}
+
+		params.XCSRFToken = XCSRFToken
+
+	} else {
+		err := fmt.Errorf("Header parameter X-CSRF-Token is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "X-CSRF-Token", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RotateOrganizationCredential(w, r, orgId, credentialId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteProjectEnvironment operation middleware
+func (siw *ServerInterfaceWrapper) DeleteProjectEnvironment(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "orgId" -------------
+	var orgId OrgIDPath
+
+	err = runtime.BindStyledParameterWithOptions("simple", "orgId", chi.URLParam(r, "orgId"), &orgId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "orgId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "environmentId" -------------
+	var environmentId EnvironmentIDPath
+
+	err = runtime.BindStyledParameterWithOptions("simple", "environmentId", chi.URLParam(r, "environmentId"), &environmentId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "environmentId", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params DeleteProjectEnvironmentParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "X-CSRF-Token" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-CSRF-Token")]; found {
+		var XCSRFToken CSRFTokenHeader
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "X-CSRF-Token", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-CSRF-Token", valueList[0], &XCSRFToken, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "X-CSRF-Token", Err: err})
+			return
+		}
+
+		params.XCSRFToken = XCSRFToken
+
+	} else {
+		err := fmt.Errorf("Header parameter X-CSRF-Token is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "X-CSRF-Token", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteProjectEnvironment(w, r, orgId, environmentId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListOrganizationInvitations operation middleware
+func (siw *ServerInterfaceWrapper) ListOrganizationInvitations(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "orgId" -------------
+	var orgId OrgIDPath
+
+	err = runtime.BindStyledParameterWithOptions("simple", "orgId", chi.URLParam(r, "orgId"), &orgId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "orgId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListOrganizationInvitations(w, r, orgId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateOrganizationInvitation operation middleware
+func (siw *ServerInterfaceWrapper) CreateOrganizationInvitation(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "orgId" -------------
+	var orgId OrgIDPath
+
+	err = runtime.BindStyledParameterWithOptions("simple", "orgId", chi.URLParam(r, "orgId"), &orgId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "orgId", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params CreateOrganizationInvitationParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "X-CSRF-Token" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-CSRF-Token")]; found {
+		var XCSRFToken CSRFTokenHeader
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "X-CSRF-Token", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-CSRF-Token", valueList[0], &XCSRFToken, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "X-CSRF-Token", Err: err})
+			return
+		}
+
+		params.XCSRFToken = XCSRFToken
+
+	} else {
+		err := fmt.Errorf("Header parameter X-CSRF-Token is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "X-CSRF-Token", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateOrganizationInvitation(w, r, orgId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RevokeOrganizationInvitation operation middleware
+func (siw *ServerInterfaceWrapper) RevokeOrganizationInvitation(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "orgId" -------------
+	var orgId OrgIDPath
+
+	err = runtime.BindStyledParameterWithOptions("simple", "orgId", chi.URLParam(r, "orgId"), &orgId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "orgId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "invitationId" -------------
+	var invitationId InvitationIDPath
+
+	err = runtime.BindStyledParameterWithOptions("simple", "invitationId", chi.URLParam(r, "invitationId"), &invitationId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "invitationId", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params RevokeOrganizationInvitationParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "X-CSRF-Token" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-CSRF-Token")]; found {
+		var XCSRFToken CSRFTokenHeader
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "X-CSRF-Token", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-CSRF-Token", valueList[0], &XCSRFToken, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "X-CSRF-Token", Err: err})
+			return
+		}
+
+		params.XCSRFToken = XCSRFToken
+
+	} else {
+		err := fmt.Errorf("Header parameter X-CSRF-Token is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "X-CSRF-Token", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RevokeOrganizationInvitation(w, r, orgId, invitationId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListOrganizationMembers operation middleware
+func (siw *ServerInterfaceWrapper) ListOrganizationMembers(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "orgId" -------------
+	var orgId OrgIDPath
+
+	err = runtime.BindStyledParameterWithOptions("simple", "orgId", chi.URLParam(r, "orgId"), &orgId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "orgId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListOrganizationMembers(w, r, orgId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RemoveOrganizationMember operation middleware
+func (siw *ServerInterfaceWrapper) RemoveOrganizationMember(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "orgId" -------------
+	var orgId OrgIDPath
+
+	err = runtime.BindStyledParameterWithOptions("simple", "orgId", chi.URLParam(r, "orgId"), &orgId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "orgId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "memberId" -------------
+	var memberId MemberIDPath
+
+	err = runtime.BindStyledParameterWithOptions("simple", "memberId", chi.URLParam(r, "memberId"), &memberId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "memberId", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params RemoveOrganizationMemberParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "X-CSRF-Token" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-CSRF-Token")]; found {
+		var XCSRFToken CSRFTokenHeader
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "X-CSRF-Token", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-CSRF-Token", valueList[0], &XCSRFToken, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "X-CSRF-Token", Err: err})
+			return
+		}
+
+		params.XCSRFToken = XCSRFToken
+
+	} else {
+		err := fmt.Errorf("Header parameter X-CSRF-Token is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "X-CSRF-Token", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RemoveOrganizationMember(w, r, orgId, memberId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateOrganizationMember operation middleware
+func (siw *ServerInterfaceWrapper) UpdateOrganizationMember(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "orgId" -------------
+	var orgId OrgIDPath
+
+	err = runtime.BindStyledParameterWithOptions("simple", "orgId", chi.URLParam(r, "orgId"), &orgId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "orgId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "memberId" -------------
+	var memberId MemberIDPath
+
+	err = runtime.BindStyledParameterWithOptions("simple", "memberId", chi.URLParam(r, "memberId"), &memberId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "memberId", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params UpdateOrganizationMemberParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "X-CSRF-Token" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-CSRF-Token")]; found {
+		var XCSRFToken CSRFTokenHeader
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "X-CSRF-Token", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-CSRF-Token", valueList[0], &XCSRFToken, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "X-CSRF-Token", Err: err})
+			return
+		}
+
+		params.XCSRFToken = XCSRFToken
+
+	} else {
+		err := fmt.Errorf("Header parameter X-CSRF-Token is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "X-CSRF-Token", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateOrganizationMember(w, r, orgId, memberId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListOrganizationProjects operation middleware
+func (siw *ServerInterfaceWrapper) ListOrganizationProjects(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "orgId" -------------
+	var orgId OrgIDPath
+
+	err = runtime.BindStyledParameterWithOptions("simple", "orgId", chi.URLParam(r, "orgId"), &orgId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "orgId", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListOrganizationProjectsParams
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListOrganizationProjects(w, r, orgId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateOrganizationProject operation middleware
+func (siw *ServerInterfaceWrapper) CreateOrganizationProject(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "orgId" -------------
+	var orgId OrgIDPath
+
+	err = runtime.BindStyledParameterWithOptions("simple", "orgId", chi.URLParam(r, "orgId"), &orgId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "orgId", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params CreateOrganizationProjectParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "X-CSRF-Token" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-CSRF-Token")]; found {
+		var XCSRFToken CSRFTokenHeader
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "X-CSRF-Token", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-CSRF-Token", valueList[0], &XCSRFToken, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "X-CSRF-Token", Err: err})
+			return
+		}
+
+		params.XCSRFToken = XCSRFToken
+
+	} else {
+		err := fmt.Errorf("Header parameter X-CSRF-Token is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "X-CSRF-Token", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateOrganizationProject(w, r, orgId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteOrganizationProject operation middleware
+func (siw *ServerInterfaceWrapper) DeleteOrganizationProject(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "orgId" -------------
+	var orgId OrgIDPath
+
+	err = runtime.BindStyledParameterWithOptions("simple", "orgId", chi.URLParam(r, "orgId"), &orgId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "orgId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "projectId" -------------
+	var projectId ProjectIDPath
+
+	err = runtime.BindStyledParameterWithOptions("simple", "projectId", chi.URLParam(r, "projectId"), &projectId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "projectId", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params DeleteOrganizationProjectParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "X-CSRF-Token" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-CSRF-Token")]; found {
+		var XCSRFToken CSRFTokenHeader
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "X-CSRF-Token", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-CSRF-Token", valueList[0], &XCSRFToken, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "X-CSRF-Token", Err: err})
+			return
+		}
+
+		params.XCSRFToken = XCSRFToken
+
+	} else {
+		err := fmt.Errorf("Header parameter X-CSRF-Token is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "X-CSRF-Token", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteOrganizationProject(w, r, orgId, projectId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetOrganizationProject operation middleware
+func (siw *ServerInterfaceWrapper) GetOrganizationProject(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "orgId" -------------
+	var orgId OrgIDPath
+
+	err = runtime.BindStyledParameterWithOptions("simple", "orgId", chi.URLParam(r, "orgId"), &orgId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "orgId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "projectId" -------------
+	var projectId ProjectIDPath
+
+	err = runtime.BindStyledParameterWithOptions("simple", "projectId", chi.URLParam(r, "projectId"), &projectId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "projectId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetOrganizationProject(w, r, orgId, projectId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateOrganizationProject operation middleware
+func (siw *ServerInterfaceWrapper) UpdateOrganizationProject(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "orgId" -------------
+	var orgId OrgIDPath
+
+	err = runtime.BindStyledParameterWithOptions("simple", "orgId", chi.URLParam(r, "orgId"), &orgId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "orgId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "projectId" -------------
+	var projectId ProjectIDPath
+
+	err = runtime.BindStyledParameterWithOptions("simple", "projectId", chi.URLParam(r, "projectId"), &projectId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "projectId", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params UpdateOrganizationProjectParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "X-CSRF-Token" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-CSRF-Token")]; found {
+		var XCSRFToken CSRFTokenHeader
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "X-CSRF-Token", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-CSRF-Token", valueList[0], &XCSRFToken, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "X-CSRF-Token", Err: err})
+			return
+		}
+
+		params.XCSRFToken = XCSRFToken
+
+	} else {
+		err := fmt.Errorf("Header parameter X-CSRF-Token is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "X-CSRF-Token", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateOrganizationProject(w, r, orgId, projectId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListProjectCredentials operation middleware
+func (siw *ServerInterfaceWrapper) ListProjectCredentials(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "orgId" -------------
+	var orgId OrgIDPath
+
+	err = runtime.BindStyledParameterWithOptions("simple", "orgId", chi.URLParam(r, "orgId"), &orgId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "orgId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "projectId" -------------
+	var projectId ProjectIDPath
+
+	err = runtime.BindStyledParameterWithOptions("simple", "projectId", chi.URLParam(r, "projectId"), &projectId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "projectId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListProjectCredentials(w, r, orgId, projectId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateProjectCredential operation middleware
+func (siw *ServerInterfaceWrapper) CreateProjectCredential(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "orgId" -------------
+	var orgId OrgIDPath
+
+	err = runtime.BindStyledParameterWithOptions("simple", "orgId", chi.URLParam(r, "orgId"), &orgId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "orgId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "projectId" -------------
+	var projectId ProjectIDPath
+
+	err = runtime.BindStyledParameterWithOptions("simple", "projectId", chi.URLParam(r, "projectId"), &projectId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "projectId", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params CreateProjectCredentialParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "X-CSRF-Token" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-CSRF-Token")]; found {
+		var XCSRFToken CSRFTokenHeader
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "X-CSRF-Token", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-CSRF-Token", valueList[0], &XCSRFToken, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "X-CSRF-Token", Err: err})
+			return
+		}
+
+		params.XCSRFToken = XCSRFToken
+
+	} else {
+		err := fmt.Errorf("Header parameter X-CSRF-Token is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "X-CSRF-Token", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateProjectCredential(w, r, orgId, projectId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListProjectEnvironments operation middleware
+func (siw *ServerInterfaceWrapper) ListProjectEnvironments(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "orgId" -------------
+	var orgId OrgIDPath
+
+	err = runtime.BindStyledParameterWithOptions("simple", "orgId", chi.URLParam(r, "orgId"), &orgId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "orgId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "projectId" -------------
+	var projectId ProjectIDPath
+
+	err = runtime.BindStyledParameterWithOptions("simple", "projectId", chi.URLParam(r, "projectId"), &projectId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "projectId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListProjectEnvironments(w, r, orgId, projectId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateProjectEnvironment operation middleware
+func (siw *ServerInterfaceWrapper) CreateProjectEnvironment(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "orgId" -------------
+	var orgId OrgIDPath
+
+	err = runtime.BindStyledParameterWithOptions("simple", "orgId", chi.URLParam(r, "orgId"), &orgId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "orgId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "projectId" -------------
+	var projectId ProjectIDPath
+
+	err = runtime.BindStyledParameterWithOptions("simple", "projectId", chi.URLParam(r, "projectId"), &projectId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "projectId", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params CreateProjectEnvironmentParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "X-CSRF-Token" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-CSRF-Token")]; found {
+		var XCSRFToken CSRFTokenHeader
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "X-CSRF-Token", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-CSRF-Token", valueList[0], &XCSRFToken, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "X-CSRF-Token", Err: err})
+			return
+		}
+
+		params.XCSRFToken = XCSRFToken
+
+	} else {
+		err := fmt.Errorf("Header parameter X-CSRF-Token is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "X-CSRF-Token", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateProjectEnvironment(w, r, orgId, projectId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListOrganizationTeams operation middleware
+func (siw *ServerInterfaceWrapper) ListOrganizationTeams(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "orgId" -------------
+	var orgId OrgIDPath
+
+	err = runtime.BindStyledParameterWithOptions("simple", "orgId", chi.URLParam(r, "orgId"), &orgId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "orgId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListOrganizationTeams(w, r, orgId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateOrganizationTeam operation middleware
+func (siw *ServerInterfaceWrapper) CreateOrganizationTeam(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "orgId" -------------
+	var orgId OrgIDPath
+
+	err = runtime.BindStyledParameterWithOptions("simple", "orgId", chi.URLParam(r, "orgId"), &orgId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "orgId", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params CreateOrganizationTeamParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "X-CSRF-Token" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-CSRF-Token")]; found {
+		var XCSRFToken CSRFTokenHeader
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "X-CSRF-Token", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-CSRF-Token", valueList[0], &XCSRFToken, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "X-CSRF-Token", Err: err})
+			return
+		}
+
+		params.XCSRFToken = XCSRFToken
+
+	} else {
+		err := fmt.Errorf("Header parameter X-CSRF-Token is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "X-CSRF-Token", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateOrganizationTeam(w, r, orgId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteOrganizationTeam operation middleware
+func (siw *ServerInterfaceWrapper) DeleteOrganizationTeam(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "orgId" -------------
+	var orgId OrgIDPath
+
+	err = runtime.BindStyledParameterWithOptions("simple", "orgId", chi.URLParam(r, "orgId"), &orgId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "orgId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "teamId" -------------
+	var teamId TeamIDPath
+
+	err = runtime.BindStyledParameterWithOptions("simple", "teamId", chi.URLParam(r, "teamId"), &teamId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "teamId", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params DeleteOrganizationTeamParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "X-CSRF-Token" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-CSRF-Token")]; found {
+		var XCSRFToken CSRFTokenHeader
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "X-CSRF-Token", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-CSRF-Token", valueList[0], &XCSRFToken, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "X-CSRF-Token", Err: err})
+			return
+		}
+
+		params.XCSRFToken = XCSRFToken
+
+	} else {
+		err := fmt.Errorf("Header parameter X-CSRF-Token is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "X-CSRF-Token", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteOrganizationTeam(w, r, orgId, teamId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// TransferOrganizationOwnership operation middleware
+func (siw *ServerInterfaceWrapper) TransferOrganizationOwnership(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "orgId" -------------
+	var orgId OrgIDPath
+
+	err = runtime.BindStyledParameterWithOptions("simple", "orgId", chi.URLParam(r, "orgId"), &orgId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "orgId", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params TransferOrganizationOwnershipParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "X-CSRF-Token" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-CSRF-Token")]; found {
+		var XCSRFToken CSRFTokenHeader
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "X-CSRF-Token", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-CSRF-Token", valueList[0], &XCSRFToken, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "X-CSRF-Token", Err: err})
+			return
+		}
+
+		params.XCSRFToken = XCSRFToken
+
+	} else {
+		err := fmt.Errorf("Header parameter X-CSRF-Token is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "X-CSRF-Token", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.TransferOrganizationOwnership(w, r, orgId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
 
 // GetStatus operation middleware
 func (siw *ServerInterfaceWrapper) GetStatus(w http.ResponseWriter, r *http.Request) {
@@ -204,6 +2952,123 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/status", wrapper.GetStatus)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/auth/register", wrapper.AuthRegister)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/auth/login", wrapper.AuthLogin)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/auth/logout", wrapper.AuthLogout)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/auth/refresh", wrapper.AuthRefresh)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/auth/verify-email", wrapper.AuthVerifyEmail)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/auth/password/forgot", wrapper.AuthPasswordForgot)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/auth/password/reset", wrapper.AuthPasswordReset)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/auth/mfa/setup", wrapper.AuthMFASetup)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/auth/mfa/verify", wrapper.AuthMFAVerify)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/auth/reauth", wrapper.AuthReauth)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/organizations", wrapper.ListOrganizations)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/organizations", wrapper.CreateOrganization)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/organizations/{orgId}", wrapper.DeleteOrganization)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/organizations/{orgId}", wrapper.GetOrganization)
+	})
+	r.Group(func(r chi.Router) {
+		r.Patch(options.BaseURL+"/organizations/{orgId}", wrapper.UpdateOrganization)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/organizations/{orgId}/transfer-ownership", wrapper.TransferOrganizationOwnership)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/organizations/{orgId}/members", wrapper.ListOrganizationMembers)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/organizations/{orgId}/members/{memberId}", wrapper.RemoveOrganizationMember)
+	})
+	r.Group(func(r chi.Router) {
+		r.Patch(options.BaseURL+"/organizations/{orgId}/members/{memberId}", wrapper.UpdateOrganizationMember)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/organizations/{orgId}/invitations", wrapper.ListOrganizationInvitations)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/organizations/{orgId}/invitations", wrapper.CreateOrganizationInvitation)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/organizations/{orgId}/invitations/{invitationId}", wrapper.RevokeOrganizationInvitation)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/invitations/accept", wrapper.AcceptOrganizationInvitation)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/organizations/{orgId}/teams", wrapper.ListOrganizationTeams)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/organizations/{orgId}/teams", wrapper.CreateOrganizationTeam)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/organizations/{orgId}/teams/{teamId}", wrapper.DeleteOrganizationTeam)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/organizations/{orgId}/audit-logs", wrapper.ListOrganizationAuditLogs)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/organizations/{orgId}/projects", wrapper.ListOrganizationProjects)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/organizations/{orgId}/projects", wrapper.CreateOrganizationProject)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/organizations/{orgId}/projects/{projectId}", wrapper.DeleteOrganizationProject)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/organizations/{orgId}/projects/{projectId}", wrapper.GetOrganizationProject)
+	})
+	r.Group(func(r chi.Router) {
+		r.Patch(options.BaseURL+"/organizations/{orgId}/projects/{projectId}", wrapper.UpdateOrganizationProject)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/organizations/{orgId}/projects/{projectId}/environments", wrapper.ListProjectEnvironments)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/organizations/{orgId}/projects/{projectId}/environments", wrapper.CreateProjectEnvironment)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/organizations/{orgId}/environments/{environmentId}", wrapper.DeleteProjectEnvironment)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/organizations/{orgId}/projects/{projectId}/credentials", wrapper.ListProjectCredentials)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/organizations/{orgId}/projects/{projectId}/credentials", wrapper.CreateProjectCredential)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/organizations/{orgId}/credentials/{credentialId}/revoke", wrapper.RevokeOrganizationCredential)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/organizations/{orgId}/credentials/{credentialId}/rotate", wrapper.RotateOrganizationCredential)
 	})
 
 	return r

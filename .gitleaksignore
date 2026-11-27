@@ -3,3 +3,10 @@
 # Subsequent commits generate test keys at runtime instead of using literals.
 8c2184d8d836a3a1f4dcb4c135c17adcf70396eb:internal/platform/crypto/crypto_test.go:generic-api-key:14
 8c2184d8d836a3a1f4dcb4c135c17adcf70396eb:internal/platform/crypto/crypto_test.go:generic-api-key:15
+
+# False positives in commit 5817049: public SecLists common passwords used as
+# negative test cases in internal/modules/identity/internal/policy/policy_test.go
+# to assert the password policy rejects breached/common passwords.
+5817049cd426b4bc6979240a651135ef48a5d0b8:internal/modules/identity/internal/policy/policy_test.go:generic-api-key:48
+5817049cd426b4bc6979240a651135ef48a5d0b8:internal/modules/identity/internal/policy/policy_test.go:generic-api-key:54
+5817049cd426b4bc6979240a651135ef48a5d0b8:internal/modules/identity/internal/policy/policy_test.go:generic-api-key:66

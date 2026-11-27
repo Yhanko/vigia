@@ -7,6 +7,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"net/url"
 	"strings"
 	"testing"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 	"github.com/testcontainers/testcontainers-go/wait"
@@ -211,6 +213,16 @@ func TestDatabaseIntegration(t *testing.T) {
 			t.Fatalf("unexpected runtime role: user=%q rolsuper=%v rolbypassrls=%v", curUser, rolSuper, rolBypassRLS)
 		}
 
+		// VerifyNonPrivilegedRole must reject the superuser adminPool and accept vigia_app (CTO #12).
+		if err := VerifyNonPrivilegedRole(ctx, adminPool); !errors.Is(err, ErrPrivilegedRole) {
+			t.Fatalf("VerifyNonPrivilegedRole(adminPool) = %v, want ErrPrivilegedRole", err)
+		} else if !strings.Contains(err.Error(), "rolsuper=true") {
+			t.Fatalf("VerifyNonPrivilegedRole(adminPool) error %q should identify rolsuper=true", err.Error())
+		}
+		if err := VerifyNonPrivilegedRole(ctx, appPool); err != nil {
+			t.Fatalf("VerifyNonPrivilegedRole(appPool) unexpected error: %v", err)
+		}
+
 		// vigia_app must NOT be able to escalate to vigia or vigia_definer, nor read pg_authid.
 		for _, forbidden := range []string{
 			"SET ROLE vigia",
@@ -289,6 +301,19 @@ func TestDatabaseIntegration(t *testing.T) {
 		}
 		if canUpdate || canDelete {
 			t.Fatalf("vigia_app has forbidden audit_logs privileges: UPDATE=%v DELETE=%v", canUpdate, canDelete)
+		}
+
+		// Guard: vigia_app must NEVER have DELETE on organizations, projects, or api_credentials (soft delete/revoke only; ADR-008 §4, CTO #9, #34).
+		for _, tbl := range []string{"organizations", "projects", "api_credentials"} {
+			var canDeleteTbl bool
+			if err := adminPool.QueryRow(ctx,
+				"SELECT has_table_privilege('vigia_app', 'public.' || $1, 'DELETE')", tbl,
+			).Scan(&canDeleteTbl); err != nil {
+				t.Fatalf("query %s DELETE privilege: %v", tbl, err)
+			}
+			if canDeleteTbl {
+				t.Fatalf("vigia_app has forbidden DELETE privilege on %s", tbl)
+			}
 		}
 	})
 
@@ -493,6 +518,57 @@ func TestDatabaseIntegration(t *testing.T) {
 			t.Fatalf("WithTenantTx(tidA): %v", err)
 		}
 
+		// organizations must reject physical DELETE as vigia_app with SQLSTATE 42501.
+		err = WithTenantTx(ctx, appPool, tidA, func(tx pgx.Tx) error {
+			_, err := tx.Exec(ctx, "DELETE FROM organizations WHERE id = $1", orgA)
+			return err
+		})
+		var delOrgErr *pgconn.PgError
+		if !errors.As(err, &delOrgErr) || delOrgErr.Code != "42501" {
+			t.Fatalf("expected SQLSTATE 42501 for DELETE on organizations as vigia_app, got: %v", err)
+		}
+
+		// Cross-tenant UPDATE and DELETE from Tenant A context targeting Org B rows
+		// (memberships and teams) must affect 0 rows and leave Org B intact (CTO #10).
+		if err := WithTenantTx(ctx, appPool, tidA, func(tx pgx.Tx) error {
+			for _, tc := range []struct {
+				name string
+				sql  string
+				arg  string
+			}{
+				{"UPDATE memberships Org B", "UPDATE memberships SET role = 'viewer' WHERE id = $1", memB},
+				{"DELETE memberships Org B", "DELETE FROM memberships WHERE id = $1", memB},
+				{"UPDATE teams Org B", "UPDATE teams SET name = 'Tampered', slug = 'tampered' WHERE id = $1", teamB},
+				{"DELETE teams Org B", "DELETE FROM teams WHERE id = $1", teamB},
+			} {
+				tag, err := tx.Exec(ctx, tc.sql, tc.arg)
+				if err != nil {
+					return err
+				}
+				if tag.RowsAffected() != 0 {
+					t.Fatalf("cross-tenant %s affected %d rows, want 0", tc.name, tag.RowsAffected())
+				}
+			}
+			return nil
+		}); err != nil {
+			t.Fatalf("cross-tenant UPDATE/DELETE test tx: %v", err)
+		}
+
+		// Runtime SQLSTATE 42501 check: DELETE on projects and api_credentials as vigia_app MUST fail (CTO #34).
+		for _, stmt := range []string{
+			"DELETE FROM projects",
+			"DELETE FROM api_credentials",
+		} {
+			err := WithTenantTx(ctx, appPool, tidA, func(tx pgx.Tx) error {
+				_, e := tx.Exec(ctx, stmt)
+				return e
+			})
+			var pgErr *pgconn.PgError
+			if !errors.As(err, &pgErr) || pgErr.Code != "42501" {
+				t.Fatalf("%s as vigia_app = %v, want SQLSTATE 42501", stmt, err)
+			}
+		}
+
 		// Verify ownership = vigia_definer (not vigia) and PUBLIC has NO EXECUTE on both functions.
 		adminPool, err := NewPool(ctx, dsn, PoolOptions{MaxConns: 2, StatementTimeout: 5 * time.Second})
 		if err != nil {
@@ -500,33 +576,108 @@ func TestDatabaseIntegration(t *testing.T) {
 		}
 		defer adminPool.Close()
 
-		for _, sig := range []string{
-			"public.list_user_organizations(uuid)",
-			"public.lookup_invitation_by_token_hash(bytea)",
-		} {
-			var owner string
-			var publicExec, appExec bool
-			if err := adminPool.QueryRow(ctx, `
-				SELECT r.rolname,
-				       has_function_privilege('public', $1::regprocedure, 'EXECUTE'),
-				       has_function_privilege('vigia_app', $1::regprocedure, 'EXECUTE')
-				FROM pg_proc p
-				JOIN pg_roles r ON r.oid = p.proowner
-				WHERE p.oid = $1::regprocedure
-			`, sig).Scan(&owner, &publicExec, &appExec); err != nil {
-				t.Fatalf("inspect function %s: %v", sig, err)
-			}
-			if owner != "vigia_definer" {
-				t.Fatalf("function %s owner = %q, want vigia_definer", sig, owner)
-			}
-			if publicExec {
-				t.Fatalf("function %s grants EXECUTE to PUBLIC", sig)
-			}
-			if !appExec {
-				t.Fatalf("function %s missing EXECUTE for vigia_app", sig)
+		// Re-read Org B rows as admin and compare field by field to prove zero mutation.
+		var bMemID, bMemOrgID, bMemUserID, bMemRole, bMemStatus string
+		if err := adminPool.QueryRow(ctx,
+			"SELECT id, organization_id, user_id, role, status FROM memberships WHERE id = $1", memB,
+		).Scan(&bMemID, &bMemOrgID, &bMemUserID, &bMemRole, &bMemStatus); err != nil {
+			t.Fatalf("re-read Org B membership as admin: %v", err)
+		}
+		if bMemID != memB || bMemOrgID != orgB || bMemUserID != userB || bMemRole != "owner" || bMemStatus != "active" {
+			t.Fatalf("Org B membership mutated: got (%s, %s, %s, %s, %s), want (%s, %s, %s, owner, active)",
+				bMemID, bMemOrgID, bMemUserID, bMemRole, bMemStatus, memB, orgB, userB)
+		}
+
+		var bTeamID, bTeamOrgID, bTeamName, bTeamSlug string
+		if err := adminPool.QueryRow(ctx,
+			"SELECT id, organization_id, name, slug FROM teams WHERE id = $1", teamB,
+		).Scan(&bTeamID, &bTeamOrgID, &bTeamName, &bTeamSlug); err != nil {
+			t.Fatalf("re-read Org B team as admin: %v", err)
+		}
+		if bTeamID != teamB || bTeamOrgID != orgB || bTeamName != "Core B" || bTeamSlug != "core-b" {
+			t.Fatalf("Org B team mutated: got (%s, %s, %s, %s), want (%s, %s, Core B, core-b)",
+				bTeamID, bTeamOrgID, bTeamName, bTeamSlug, teamB, orgB)
+		}
+
+		// Dynamic catalog guard (CTO #33): EVERY SECURITY DEFINER function in public schema
+		// must be owned by vigia_definer, pin search_path in proconfig, and revoke PUBLIC EXECUTE.
+		checkedFuncs, violations, err := auditSecurityDefinerFunctions(ctx, adminPool)
+		if err != nil {
+			t.Fatalf("auditSecurityDefinerFunctions: %v", err)
+		}
+		if len(violations) > 0 {
+			t.Fatalf("SECURITY DEFINER guard violations: %v", violations)
+		}
+		seenLookupCred := false
+		for _, fn := range checkedFuncs {
+			if fn == "lookup_api_credential_by_prefix" {
+				seenLookupCred = true
 			}
 		}
+		if !seenLookupCred {
+			t.Fatalf("dynamic SECURITY DEFINER guard did not find lookup_api_credential_by_prefix; saw %v", checkedFuncs)
+		}
+
+		// Negative proof (CTO #33): creating a non-compliant SECURITY DEFINER function MUST be caught.
+		if _, err := adminPool.Exec(ctx, `CREATE FUNCTION public._test_bad_secdef() RETURNS int LANGUAGE sql SECURITY DEFINER AS $$ SELECT 1 $$`); err != nil {
+			t.Fatalf("create negative test function: %v", err)
+		}
+		t.Cleanup(func() {
+			_, _ = adminPool.Exec(context.Background(), `DROP FUNCTION IF EXISTS public._test_bad_secdef()`)
+		})
+		_, badViolations, err := auditSecurityDefinerFunctions(ctx, adminPool)
+		if err != nil {
+			t.Fatalf("auditSecurityDefinerFunctions (negative): %v", err)
+		}
+		if len(badViolations) == 0 {
+			t.Fatal("expected SECURITY DEFINER guard to catch _test_bad_secdef, but got 0 violations")
+		}
+		if _, err := adminPool.Exec(ctx, `DROP FUNCTION public._test_bad_secdef()`); err != nil {
+			t.Fatalf("drop negative test function: %v", err)
+		}
 	})
+}
+
+func auditSecurityDefinerFunctions(ctx context.Context, adminPool *pgxpool.Pool) (checked []string, violations []string, err error) {
+	rows, err := adminPool.Query(ctx, `
+		SELECT p.proname,
+		       r.rolname,
+		       EXISTS (
+		           SELECT 1
+		           FROM unnest(coalesce(p.proconfig, ARRAY[]::text[])) cfg
+		           WHERE cfg LIKE 'search_path=%'
+		       ) AS has_search_path,
+		       has_function_privilege('public', p.oid, 'EXECUTE') AS public_exec
+		FROM pg_proc p
+		JOIN pg_namespace n ON n.oid = p.pronamespace
+		JOIN pg_roles r ON r.oid = p.proowner
+		WHERE n.nspname = 'public'
+		  AND p.prosecdef = true
+		ORDER BY p.proname
+	`)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var name, owner string
+		var hasSearchPath, publicExec bool
+		if err := rows.Scan(&name, &owner, &hasSearchPath, &publicExec); err != nil {
+			return nil, nil, err
+		}
+		checked = append(checked, name)
+		if owner != "vigia_definer" {
+			violations = append(violations, fmt.Sprintf("%s: owner=%q (want vigia_definer)", name, owner))
+		}
+		if !hasSearchPath {
+			violations = append(violations, fmt.Sprintf("%s: missing pinned search_path in proconfig", name))
+		}
+		if publicExec {
+			violations = append(violations, fmt.Sprintf("%s: PUBLIC has EXECUTE", name))
+		}
+	}
+	return checked, violations, rows.Err()
 }
 
 func replaceDSNUser(t *testing.T, dsn, user, pass string) string {

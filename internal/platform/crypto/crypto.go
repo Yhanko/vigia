@@ -25,15 +25,8 @@ const (
 // cannot distinguish failure reasons.
 var ErrDecrypt = errors.New("crypto: decryption failed")
 
-// Encrypter defines the minimal envelope encryption contract consumed by
-// domain modules (ADR-015 §3.4).
-type Encrypter interface {
-	Encrypt(scope Scope, plaintext []byte) ([]byte, error)
-	Decrypt(scope Scope, envelope []byte) ([]byte, error)
-	Rewrap(scope Scope, envelope []byte) ([]byte, bool, error)
-}
-
-// EnvelopeEncrypter implements Encrypter using AES-256-GCM KEK/DEK envelopes.
+// EnvelopeEncrypter implements AES-256-GCM KEK/DEK envelope encryption with
+// AAD binding (ADR-015). Consumers define minimal interfaces on their side (CTO #7).
 type EnvelopeEncrypter struct {
 	keyring *Keyring
 }

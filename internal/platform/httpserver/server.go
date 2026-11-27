@@ -5,9 +5,11 @@ package httpserver
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -33,6 +35,16 @@ type Options struct {
 	MaxBodyBytes int64
 	// HSTS enables Strict-Transport-Security; set only when served over TLS (production).
 	HSTS bool
+	// APIRateLimit optionally wraps the /api/v1 route group with base per-IP rate limiting.
+	APIRateLimit func(http.Handler) http.Handler
+	// APIAuth optionally wraps the /api/v1 route group with session and CSRF middleware.
+	APIAuth func(http.Handler) http.Handler
+	// APIIdempotency optionally wraps the /api/v1 route group AFTER APIAuth to
+	// enforce principal-scoped Idempotency-Key semantics on creation POSTs (CTO #32).
+	APIIdempotency func(http.Handler) http.Handler
+	// APIServer provides the composed OpenAPI ServerInterface mounted under /api/v1
+	// via api.HandlerWithOptions (CTO #6, #18). Domain handlers live in internal/modules/*.
+	APIServer api.ServerInterface
 }
 
 // AdminOptions configures the internal operational listener (ADMIN_PORT),
@@ -66,34 +78,33 @@ func NewHandler(opts Options) http.Handler {
 		WriteError(w, req, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "The HTTP method is not allowed for this endpoint.")
 	})
 
-	// Versioned product API (README §9), wired through the oapi-codegen ServerInterface.
-	r.Route("/api/v1", func(v1 chi.Router) {
-		api.HandlerWithOptions(apiHandlers{
-			version: opts.Version,
-			commit:  opts.Commit,
-		}, api.ChiServerOptions{
-			BaseRouter: v1,
-			ErrorHandlerFunc: func(w http.ResponseWriter, req *http.Request, _ error) {
-				WriteError(w, req, http.StatusBadRequest, "VALIDATION_FAILED", "Invalid request parameters.")
-			},
+	// Versioned product API (README §9), mounted via oapi-codegen ServerInterface (CTO #18).
+	if opts.APIServer != nil {
+		r.Route("/api/v1", func(v1 chi.Router) {
+			if opts.APIRateLimit != nil {
+				v1.Use(opts.APIRateLimit)
+			}
+			if opts.APIAuth != nil {
+				v1.Use(opts.APIAuth)
+			}
+			if opts.APIIdempotency != nil {
+				v1.Use(opts.APIIdempotency)
+			}
+			api.HandlerWithOptions(opts.APIServer, api.ChiServerOptions{
+				BaseRouter: v1,
+				ErrorHandlerFunc: func(w http.ResponseWriter, req *http.Request, err error) {
+					var reqHdr *api.RequiredHeaderError
+					if errors.As(err, &reqHdr) && strings.EqualFold(reqHdr.ParamName, "X-CSRF-Token") {
+						WriteError(w, req, http.StatusForbidden, "CSRF_INVALID", "Invalid or missing CSRF token.")
+						return
+					}
+					WriteError(w, req, http.StatusBadRequest, "VALIDATION_FAILED", "Invalid request parameters.")
+				},
+			})
 		})
-	})
+	}
 
 	return r
-}
-
-type apiHandlers struct {
-	version string
-	commit  string
-}
-
-func (h apiHandlers) GetStatus(w http.ResponseWriter, _ *http.Request) {
-	WriteJSON(w, http.StatusOK, api.StatusResponse{
-		Service: "vigia",
-		Status:  "ok",
-		Version: h.version,
-		Commit:  h.commit,
-	})
 }
 
 // NewAdminHandler constructs the internal operational router (README §9.3).
