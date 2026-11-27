@@ -77,8 +77,8 @@ type Config struct {
 	SMTPURL                  string
 	MFARequiredForPrivileged bool
 	VAPIDPublicKey           string
-	VAPIDPrivateKey Secret
-	VAPIDSubject    string
+	VAPIDPrivateKey          Secret
+	VAPIDSubject             string
 }
 
 // Load reads configuration from environment variables (and *_FILE secret paths)

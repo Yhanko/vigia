@@ -32,12 +32,12 @@ const (
 )
 
 var (
-	ErrForbidden          = errors.New("credentials: forbidden")
-	ErrMFARequired        = errors.New("credentials: mfa required for privileged role")
-	ErrNotFound           = errors.New("credentials: credential not found")
-	ErrInvalidInput       = errors.New("credentials: invalid input")
-	ErrPrefixCollision    = errors.New("credentials: failed to allocate unique prefix after retries")
-	ErrProjectNotFound    = errors.New("credentials: project not found")
+	ErrForbidden       = errors.New("credentials: forbidden")
+	ErrMFARequired     = errors.New("credentials: mfa required for privileged role")
+	ErrNotFound        = errors.New("credentials: credential not found")
+	ErrInvalidInput    = errors.New("credentials: invalid input")
+	ErrPrefixCollision = errors.New("credentials: failed to allocate unique prefix after retries")
+	ErrProjectNotFound = errors.New("credentials: project not found")
 )
 
 // Cache abstracts the Redis operations needed for credential caching, immediate

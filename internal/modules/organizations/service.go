@@ -193,8 +193,8 @@ func (s *Service) Create(ctx context.Context, actor Actor, name, slug string) (O
 	err = database.WithTenantTx(ctx, s.pool, tid, func(tx pgx.Tx) error {
 		qtx := s.q.WithTx(tx)
 		orgRow, err := qtx.CreateOrganization(ctx, sqlcgen.CreateOrganizationParams{
-			ID:    orgUUID,
-			Btrim: name,
+			ID:      orgUUID,
+			Btrim:   name,
 			Btrim_2: slug,
 		})
 		if err != nil {

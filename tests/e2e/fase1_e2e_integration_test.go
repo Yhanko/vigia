@@ -57,17 +57,23 @@ type e2eAPIServer struct {
 func (s e2eAPIServer) GetStatus(w http.ResponseWriter, _ *http.Request) {
 	httpserver.WriteJSON(w, http.StatusOK, api.StatusResponse{Service: "vigia", Status: "ok", Version: "e2e", Commit: "e2e"})
 }
-func (s e2eAPIServer) AuthRegister(w http.ResponseWriter, r *http.Request)       { s.id.AuthRegister(w, r) }
-func (s e2eAPIServer) AuthLogin(w http.ResponseWriter, r *http.Request)          { s.id.AuthLogin(w, r) }
+func (s e2eAPIServer) AuthRegister(w http.ResponseWriter, r *http.Request) { s.id.AuthRegister(w, r) }
+func (s e2eAPIServer) AuthLogin(w http.ResponseWriter, r *http.Request)    { s.id.AuthLogin(w, r) }
 func (s e2eAPIServer) AuthLogout(w http.ResponseWriter, r *http.Request, p api.AuthLogoutParams) {
 	s.id.AuthLogout(w, r, p)
 }
 func (s e2eAPIServer) AuthRefresh(w http.ResponseWriter, r *http.Request, p api.AuthRefreshParams) {
 	s.id.AuthRefresh(w, r, p)
 }
-func (s e2eAPIServer) AuthVerifyEmail(w http.ResponseWriter, r *http.Request)    { s.id.AuthVerifyEmail(w, r) }
-func (s e2eAPIServer) AuthPasswordForgot(w http.ResponseWriter, r *http.Request) { s.id.AuthPasswordForgot(w, r) }
-func (s e2eAPIServer) AuthPasswordReset(w http.ResponseWriter, r *http.Request)  { s.id.AuthPasswordReset(w, r) }
+func (s e2eAPIServer) AuthVerifyEmail(w http.ResponseWriter, r *http.Request) {
+	s.id.AuthVerifyEmail(w, r)
+}
+func (s e2eAPIServer) AuthPasswordForgot(w http.ResponseWriter, r *http.Request) {
+	s.id.AuthPasswordForgot(w, r)
+}
+func (s e2eAPIServer) AuthPasswordReset(w http.ResponseWriter, r *http.Request) {
+	s.id.AuthPasswordReset(w, r)
+}
 func (s e2eAPIServer) AuthMFASetup(w http.ResponseWriter, r *http.Request, p api.AuthMFASetupParams) {
 	s.id.AuthMFASetup(w, r, p)
 }

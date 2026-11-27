@@ -20,15 +20,15 @@ const (
 	KindDSN    = "dsn"
 
 	// Exact fixed lengths from ADR-005 §3.2 (never parsed with strings.Split).
-	SecretKeyLength  = 84 // "vg_ing_" (7) + prefix (12 hex) + "_" (1) + secret (64 hex)
-	PrefixOffset     = 7
-	PrefixLength     = 12
-	SeparatorOffset  = 19
-	SecretOffset     = 20
-	SecretHexLength  = 64
-	DSNKeyLength     = 32 // 128-bit CSPRNG lowercase hex
-	DSNPrefixLength  = 8
-	MaxCollisionTry  = 3
+	SecretKeyLength = 84 // "vg_ing_" (7) + prefix (12 hex) + "_" (1) + secret (64 hex)
+	PrefixOffset    = 7
+	PrefixLength    = 12
+	SeparatorOffset = 19
+	SecretOffset    = 20
+	SecretHexLength = 64
+	DSNKeyLength    = 32 // 128-bit CSPRNG lowercase hex
+	DSNPrefixLength = 8
+	MaxCollisionTry = 3
 )
 
 var (
@@ -58,7 +58,7 @@ func GenerateSecretKey(kind string) (fullKey, prefix string, err error) {
 		return "", "", fmt.Errorf("credentials: unsupported secret key kind %q", kind)
 	}
 
-	var preBuf [6]byte // 12 hex
+	var preBuf [6]byte  // 12 hex
 	var secBuf [32]byte // 64 hex (256 bits)
 	if _, err := io.ReadFull(rand.Reader, preBuf[:]); err != nil {
 		return "", "", fmt.Errorf("credentials: generate prefix: %w", err)
@@ -142,7 +142,7 @@ func CacheKey(kind, prefixOrPublicKey string) string {
 func isLowerHex(s string) bool {
 	for i := range len(s) {
 		c := s[i]
-		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
 			return false
 		}
 	}

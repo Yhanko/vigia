@@ -28,7 +28,7 @@ const (
 	PermProjectDelete        Permission = "project:delete"
 	PermAPIKeyRead           Permission = "api_key:read"
 	PermAPIKeyCreate         Permission = "api_key:create"
-	PermAPIKeyRevoke         Permission = "api_key:revoke"
+	PermAPIKeyRevoke         Permission = "api_key:revoke" //nolint:gosec // G101: RBAC permission identifier, not a credential
 	PermAuditRead            Permission = "audit:read"
 )
 
@@ -50,16 +50,16 @@ var rolePermissions = map[string]map[Permission]struct{}{
 		PermAuditRead: {},
 	},
 	RoleMember: {
-		PermOrgRead: {},
-		PermMemberRead: {},
-		PermTeamRead: {},
+		PermOrgRead:     {},
+		PermMemberRead:  {},
+		PermTeamRead:    {},
 		PermProjectRead: {}, PermProjectCreate: {}, PermProjectUpdate: {},
 		PermAPIKeyRead: {},
 	},
 	RoleViewer: {
-		PermOrgRead: {},
-		PermMemberRead: {},
-		PermTeamRead: {},
+		PermOrgRead:     {},
+		PermMemberRead:  {},
+		PermTeamRead:    {},
 		PermProjectRead: {},
 	},
 }

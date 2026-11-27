@@ -19,12 +19,12 @@ import (
 )
 
 const (
-	SecretBytes          = 20
-	PeriodSeconds  int64 = 30
-	Digits               = 6
-	SkewSteps      int64 = 1
-	RecoveryCount        = 10
-	RecoveryBits         = 80 // 16 base32 chars (5 bits each)
+	SecretBytes         = 20
+	PeriodSeconds int64 = 30
+	Digits              = 6
+	SkewSteps     int64 = 1
+	RecoveryCount       = 10
+	RecoveryBits        = 80 // 16 base32 chars (5 bits each)
 
 	// Unambiguous Crockford-like base32 alphabet (no 0/O, 1/I/L).
 	recoveryAlphabet = "23456789abcdefghjkmnpqrstuvwxyz2" // 32 chars (last char pads to power-of-2 mask)

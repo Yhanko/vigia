@@ -21,18 +21,18 @@ import (
 
 // Rate-limit defaults from docs/decisions/business-defaults.md §4.
 const (
-	RegisterLimitPerIP            = 5
-	RegisterWindow                = time.Hour
-	LoginLimitPerIP               = 10
-	LoginLimitPerAccountIP        = 5
-	LoginWindow                   = 15 * time.Minute
-	PasswordForgotLimitPerEmail   = 3
-	PasswordForgotLimitPerIP      = 10
-	PasswordForgotWindow          = 15 * time.Minute
-	PasswordResetLimitPerIP       = 10
-	PasswordResetWindow           = 15 * time.Minute
-	VerifyEmailLimitPerIP         = 20
-	VerifyEmailWindow             = 15 * time.Minute
+	RegisterLimitPerIP          = 5
+	RegisterWindow              = time.Hour
+	LoginLimitPerIP             = 10
+	LoginLimitPerAccountIP      = 5
+	LoginWindow                 = 15 * time.Minute
+	PasswordForgotLimitPerEmail = 3
+	PasswordForgotLimitPerIP    = 10
+	PasswordForgotWindow        = 15 * time.Minute
+	PasswordResetLimitPerIP     = 10
+	PasswordResetWindow         = 15 * time.Minute
+	VerifyEmailLimitPerIP       = 20
+	VerifyEmailWindow           = 15 * time.Minute
 
 	maxStoredUserAgentLen = 200
 )
