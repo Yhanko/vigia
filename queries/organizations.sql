@@ -123,16 +123,25 @@ WHERE organization_id = $1
   AND accepted_at IS NULL
   AND revoked_at IS NULL;
 
+-- name: GetUserSecurityStatus :one
+SELECT id, email, status, email_verified_at, mfa_enabled
+FROM users
+WHERE id = $1;
+
 -- name: AcceptInvitation :one
-UPDATE invitations
+UPDATE invitations i
 SET accepted_at = sqlc.arg(now)::timestamptz
-WHERE organization_id = $1
-  AND id = $2
-  AND lower(email) = lower(btrim(sqlc.arg(user_email)::text))
-  AND accepted_at IS NULL
-  AND revoked_at IS NULL
-  AND expires_at > sqlc.arg(now)::timestamptz
-RETURNING id, organization_id, email, role, invited_by, expires_at, accepted_at, revoked_at, created_at;
+FROM users u
+WHERE i.organization_id = $1
+  AND i.id = $2
+  AND u.id = sqlc.arg(user_id)::uuid
+  AND u.status = 'active'
+  AND u.email_verified_at IS NOT NULL
+  AND lower(i.email) = lower(u.email)
+  AND i.accepted_at IS NULL
+  AND i.revoked_at IS NULL
+  AND i.expires_at > sqlc.arg(now)::timestamptz
+RETURNING i.id, i.organization_id, i.email, i.role, i.invited_by, i.expires_at, i.accepted_at, i.revoked_at, i.created_at;
 
 -- name: CreateTeam :one
 INSERT INTO teams (id, organization_id, name, slug)

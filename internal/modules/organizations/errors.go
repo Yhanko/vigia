@@ -10,6 +10,7 @@ var (
 	ErrConflict          = errors.New("organizations: conflict")
 	ErrForbidden         = errors.New("organizations: forbidden")
 	ErrProtectedResource = errors.New("organizations: protected resource")
+	ErrEmailNotVerified  = errors.New("organizations: email address must be verified")
 	ErrMFASetupRequired  = errors.New("organizations: mfa setup required for privileged role")
 	ErrReauthRequired    = errors.New("organizations: recent authentication required")
 )

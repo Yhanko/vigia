@@ -192,6 +192,19 @@ func (s *Service) Create(ctx context.Context, actor Actor, name, slug string) (O
 	var created Organization
 	err = database.WithTenantTx(ctx, s.pool, tid, func(tx pgx.Tx) error {
 		qtx := s.q.WithTx(tx)
+		u, err := qtx.GetUserSecurityStatus(ctx, userUUID)
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return ErrForbidden
+			}
+			return fmt.Errorf("check creator user status: %w", err)
+		}
+		if u.Status != "active" {
+			return ErrForbidden
+		}
+		if !u.EmailVerifiedAt.Valid {
+			return ErrEmailNotVerified
+		}
 		orgRow, err := qtx.CreateOrganization(ctx, sqlcgen.CreateOrganizationParams{
 			ID:      orgUUID,
 			Btrim:   name,
@@ -422,6 +435,22 @@ func (s *Service) TransferOwnership(ctx context.Context, tenantID database.Tenan
 				return ErrNotFound
 			}
 			return err
+		}
+		targetUser, err := qtx.GetUserSecurityStatus(ctx, mustScanUUID(targetUserID))
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return ErrNotFound
+			}
+			return fmt.Errorf("check target user status: %w", err)
+		}
+		if targetUser.Status != "active" {
+			return ErrForbidden
+		}
+		if !targetUser.EmailVerifiedAt.Valid {
+			return ErrEmailNotVerified
+		}
+		if s.mfaRequiredForPrivileged && !targetUser.MfaEnabled {
+			return ErrMFASetupRequired
 		}
 		if _, err := qtx.UpdateMembershipRole(ctx, sqlcgen.UpdateMembershipRoleParams{
 			OrganizationID: orgUUID,
@@ -686,14 +715,20 @@ func (s *Service) AcceptInvitation(ctx context.Context, actor Actor, rawToken st
 	var out Member
 	err = database.WithTenantTx(ctx, s.pool, tid, func(tx pgx.Tx) error {
 		qtx := s.q.WithTx(tx)
+		userUUID := mustScanUUID(actor.UserID)
 		inv, err := qtx.AcceptInvitation(ctx, sqlcgen.AcceptInvitationParams{
 			OrganizationID: orgUUID,
 			ID:             mustScanUUID(invIDStr),
 			Now:            pgtype.Timestamptz{Time: now, Valid: true},
-			UserEmail:      actor.Email,
+			UserID:         userUUID,
 		})
 		if err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
+				// Distinguish unverified email from expired/wrong-email/revoked invitation
+				// without accepting the invitation.
+				if u, uErr := qtx.GetUserSecurityStatus(ctx, userUUID); uErr == nil && u.Status == "active" && !u.EmailVerifiedAt.Valid {
+					return ErrEmailNotVerified
+				}
 				return ErrNotFound
 			}
 			return err

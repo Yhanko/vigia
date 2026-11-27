@@ -48,6 +48,7 @@ Todas as respostas de erro sob `/api/v1/*` usam exclusivamente este envelope JSO
 | `INSUFFICIENT_SCOPE` | `403` | Credencial `vg_ing_`, `vg_cli_` ou `dsn` usada fora do seu âmbito permitido |
 | `CSRF_INVALID` | `403` | `Origin` ou `X-CSRF-Token` em falta ou inválido em pedido mutável por cookie |
 | `MFA_SETUP_REQUIRED` | `403` | Utilizador `owner`/`admin` sem MFA activado a tentar aceder a rota da organização quando `MFA_REQUIRED_FOR_PRIVILEGED=true` |
+| `EMAIL_NOT_VERIFIED` | `403` | Conta sem email verificado a tentar aceitar convite, criar organização ou receber transferência de ownership |
 | `PROTECTED_RESOURCE` | `403` | Tentativa de eliminar/alterar ambiente com `is_protected = true` ou último `owner` |
 
 ### 2.3 Validação, Parsing e Recursos (`400`, `404`, `405`, `409`, `413`, `415`)

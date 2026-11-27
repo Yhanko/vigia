@@ -12,22 +12,26 @@ import (
 )
 
 const acceptInvitation = `-- name: AcceptInvitation :one
-UPDATE invitations
+UPDATE invitations i
 SET accepted_at = $3::timestamptz
-WHERE organization_id = $1
-  AND id = $2
-  AND lower(email) = lower(btrim($4::text))
-  AND accepted_at IS NULL
-  AND revoked_at IS NULL
-  AND expires_at > $3::timestamptz
-RETURNING id, organization_id, email, role, invited_by, expires_at, accepted_at, revoked_at, created_at
+FROM users u
+WHERE i.organization_id = $1
+  AND i.id = $2
+  AND u.id = $4::uuid
+  AND u.status = 'active'
+  AND u.email_verified_at IS NOT NULL
+  AND lower(i.email) = lower(u.email)
+  AND i.accepted_at IS NULL
+  AND i.revoked_at IS NULL
+  AND i.expires_at > $3::timestamptz
+RETURNING i.id, i.organization_id, i.email, i.role, i.invited_by, i.expires_at, i.accepted_at, i.revoked_at, i.created_at
 `
 
 type AcceptInvitationParams struct {
 	OrganizationID pgtype.UUID        `json:"organization_id"`
 	ID             pgtype.UUID        `json:"id"`
 	Now            pgtype.Timestamptz `json:"now"`
-	UserEmail      string             `json:"user_email"`
+	UserID         pgtype.UUID        `json:"user_id"`
 }
 
 type AcceptInvitationRow struct {
@@ -47,7 +51,7 @@ func (q *Queries) AcceptInvitation(ctx context.Context, arg AcceptInvitationPara
 		arg.OrganizationID,
 		arg.ID,
 		arg.Now,
-		arg.UserEmail,
+		arg.UserID,
 	)
 	var i AcceptInvitationRow
 	err := row.Scan(
@@ -410,6 +414,33 @@ func (q *Queries) GetTeamByID(ctx context.Context, arg GetTeamByIDParams) (Team,
 		&i.Slug,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getUserSecurityStatus = `-- name: GetUserSecurityStatus :one
+SELECT id, email, status, email_verified_at, mfa_enabled
+FROM users
+WHERE id = $1
+`
+
+type GetUserSecurityStatusRow struct {
+	ID              pgtype.UUID        `json:"id"`
+	Email           string             `json:"email"`
+	Status          string             `json:"status"`
+	EmailVerifiedAt pgtype.Timestamptz `json:"email_verified_at"`
+	MfaEnabled      bool               `json:"mfa_enabled"`
+}
+
+func (q *Queries) GetUserSecurityStatus(ctx context.Context, id pgtype.UUID) (GetUserSecurityStatusRow, error) {
+	row := q.db.QueryRow(ctx, getUserSecurityStatus, id)
+	var i GetUserSecurityStatusRow
+	err := row.Scan(
+		&i.ID,
+		&i.Email,
+		&i.Status,
+		&i.EmailVerifiedAt,
+		&i.MfaEnabled,
 	)
 	return i, err
 }

@@ -351,6 +351,8 @@ func (h *Handler) writeError(w http.ResponseWriter, r *http.Request, err error) 
 	switch {
 	case errors.Is(err, ErrReauthRequired):
 		httpserver.WriteError(w, r, http.StatusUnauthorized, "REAUTH_REQUIRED", "Recent authentication is required for this operation.")
+	case errors.Is(err, ErrEmailNotVerified):
+		httpserver.WriteError(w, r, http.StatusForbidden, "EMAIL_NOT_VERIFIED", "Email address must be verified before performing this action.")
 	case errors.Is(err, ErrMFASetupRequired):
 		httpserver.WriteError(w, r, http.StatusForbidden, "MFA_SETUP_REQUIRED", "Multi-factor authentication setup is required for privileged roles.")
 	case errors.Is(err, ErrProtectedResource):

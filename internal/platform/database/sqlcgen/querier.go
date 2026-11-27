@@ -46,6 +46,7 @@ type Querier interface {
 	GetTeamByID(ctx context.Context, arg GetTeamByIDParams) (Team, error)
 	GetUserByEmail(ctx context.Context, email string) (User, error)
 	GetUserByID(ctx context.Context, id pgtype.UUID) (User, error)
+	GetUserSecurityStatus(ctx context.Context, id pgtype.UUID) (GetUserSecurityStatusRow, error)
 	IncrementSessionMFAFailedAttempts(ctx context.Context, arg IncrementSessionMFAFailedAttemptsParams) (IncrementSessionMFAFailedAttemptsRow, error)
 	InsertGlobalAuditLog(ctx context.Context, arg InsertGlobalAuditLogParams) error
 	// Tenant-scoped append-only audit log queries (ADR-008, README §7.10, §9.2).

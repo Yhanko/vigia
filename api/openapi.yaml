@@ -1429,7 +1429,7 @@ components:
           schema:
             $ref: "#/components/schemas/ErrorResponse"
     Forbidden:
-      description: Forbidden, CSRF invalid, MFA setup required, or protected resource
+      description: Forbidden, CSRF invalid, email not verified (`EMAIL_NOT_VERIFIED`), MFA setup required (`MFA_SETUP_REQUIRED`), or protected resource (`PROTECTED_RESOURCE`)
       content:
         application/json:
           schema:
