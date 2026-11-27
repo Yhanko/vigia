@@ -5,9 +5,11 @@ package httpserver
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -35,6 +37,9 @@ type Options struct {
 	HSTS bool
 	// APIRateLimit optionally wraps the /api/v1 route group with base per-IP rate limiting.
 	APIRateLimit func(http.Handler) http.Handler
+	// APIServer provides the composed OpenAPI ServerInterface mounted under /api/v1
+	// via api.HandlerWithOptions (CTO #6, #18). Domain handlers live in internal/modules/*.
+	APIServer api.ServerInterface
 }
 
 // AdminOptions configures the internal operational listener (ADMIN_PORT),
@@ -68,22 +73,25 @@ func NewHandler(opts Options) http.Handler {
 		WriteError(w, req, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "The HTTP method is not allowed for this endpoint.")
 	})
 
-	// Versioned product API (README §9). Only the infrastructure /status
-	// endpoint lives in platform/httpserver; domain handlers live in
-	// internal/modules/<domain> and mount onto /api/v1 from cmd/vigia.
-	r.Route("/api/v1", func(v1 chi.Router) {
-		if opts.APIRateLimit != nil {
-			v1.Use(opts.APIRateLimit)
-		}
-		v1.Get("/status", func(w http.ResponseWriter, _ *http.Request) {
-			WriteJSON(w, http.StatusOK, api.StatusResponse{
-				Service: "vigia",
-				Status:  "ok",
-				Version: opts.Version,
-				Commit:  opts.Commit,
+	// Versioned product API (README §9), mounted via oapi-codegen ServerInterface (CTO #18).
+	if opts.APIServer != nil {
+		r.Route("/api/v1", func(v1 chi.Router) {
+			if opts.APIRateLimit != nil {
+				v1.Use(opts.APIRateLimit)
+			}
+			api.HandlerWithOptions(opts.APIServer, api.ChiServerOptions{
+				BaseRouter: v1,
+				ErrorHandlerFunc: func(w http.ResponseWriter, req *http.Request, err error) {
+					var reqHdr *api.RequiredHeaderError
+					if errors.As(err, &reqHdr) && strings.EqualFold(reqHdr.ParamName, "X-CSRF-Token") {
+						WriteError(w, req, http.StatusForbidden, "CSRF_INVALID", "Invalid or missing CSRF token.")
+						return
+					}
+					WriteError(w, req, http.StatusBadRequest, "VALIDATION_FAILED", "Invalid request parameters.")
+				},
 			})
 		})
-	})
+	}
 
 	return r
 }

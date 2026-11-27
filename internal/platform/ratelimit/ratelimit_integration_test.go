@@ -14,10 +14,24 @@ import (
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
 
+	"github.com/Yhanko/vigia/internal/api"
 	"github.com/Yhanko/vigia/internal/platform/clock"
 	"github.com/Yhanko/vigia/internal/platform/httpserver"
 	"github.com/Yhanko/vigia/internal/platform/ratelimit"
 )
+
+type statusOnlyAPI struct {
+	api.Unimplemented
+}
+
+func (statusOnlyAPI) GetStatus(w http.ResponseWriter, _ *http.Request) {
+	httpserver.WriteJSON(w, http.StatusOK, api.StatusResponse{
+		Service: "vigia",
+		Status:  "ok",
+		Version: "test",
+		Commit:  "abc",
+	})
+}
 
 // Exact Redis image and digest pinned in compose.yaml.
 const redisImage = "redis:8.12.0-alpine3.23@sha256:5af80107c1eeecb484a2269b80a26d12bfa6521787da4663bd9f19f60a163483"
@@ -86,8 +100,9 @@ func TestRedisLimiterAndStatus429Integration(t *testing.T) {
 
 	// CTO #5: GET /api/v1/status above limit returns 429 RATE_LIMIT_EXCEEDED + headers.
 	handler := httpserver.NewHandler(httpserver.Options{
-		Version: "test",
-		Commit:  "abc",
+		Version:   "test",
+		Commit:    "abc",
+		APIServer: statusOnlyAPI{},
 		APIRateLimit: ratelimit.Middleware(ratelimit.MiddlewareOptions{
 			Limiter:    limiter,
 			KeyPrefix:  "api",

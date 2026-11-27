@@ -7,16 +7,26 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/redis/go-redis/v9"
+
+	"github.com/Yhanko/vigia/internal/api"
+	"github.com/Yhanko/vigia/internal/modules/identity"
+	"github.com/Yhanko/vigia/internal/modules/identity/password"
+	"github.com/Yhanko/vigia/internal/modules/identity/session"
+	"github.com/Yhanko/vigia/internal/platform/clock"
 	"github.com/Yhanko/vigia/internal/platform/config"
 	"github.com/Yhanko/vigia/internal/platform/crypto"
 	"github.com/Yhanko/vigia/internal/platform/database"
 	"github.com/Yhanko/vigia/internal/platform/httpserver"
 	"github.com/Yhanko/vigia/internal/platform/queue"
+	"github.com/Yhanko/vigia/internal/platform/ratelimit"
 	"github.com/Yhanko/vigia/internal/platform/telemetry"
 	"github.com/Yhanko/vigia/migrations"
 )
@@ -102,14 +112,18 @@ func runAPI() error {
 		logger.Warn("ENCRYPTION_KEY_FILE not set; running without envelope encryption")
 	}
 
-	var checks []httpserver.ReadinessCheck
+	var (
+		checks []httpserver.ReadinessCheck
+		pool   *pgxpool.Pool
+		rdb    *redis.Client
+	)
 
 	if cfg.DatabaseURL != "" {
 		dsn, err := cfg.DatabaseDSN()
 		if err != nil {
 			return err
 		}
-		pool, err := database.NewPool(ctx, dsn, database.PoolOptions{
+		pool, err = database.NewPool(ctx, dsn, database.PoolOptions{
 			MaxConns:         cfg.DatabaseMaxConns,
 			StatementTimeout: cfg.DatabaseStatementTimeout,
 		})
@@ -132,7 +146,7 @@ func runAPI() error {
 	}
 
 	if cfg.RedisAddr != "" {
-		rdb, err := queue.NewRedisClient(ctx, cfg.RedisAddr, cfg.RedisPassword.Value())
+		rdb, err = queue.NewRedisClient(ctx, cfg.RedisAddr, cfg.RedisPassword.Value())
 		if err != nil {
 			return err
 		}
@@ -147,6 +161,66 @@ func runAPI() error {
 		logger.Warn("REDIS_ADDR not set; running without Redis connection")
 	}
 
+	clk := clock.System{}
+	var (
+		limiter        *ratelimit.RedisLimiter
+		apiRateLimitMW func(http.Handler) http.Handler
+	)
+	if rdb != nil {
+		limiter, err = ratelimit.NewRedisLimiter(rdb, clk)
+		if err != nil {
+			return err
+		}
+		apiRateLimitMW = ratelimit.Middleware(ratelimit.MiddlewareOptions{
+			Limiter:    limiter,
+			KeyPrefix:  "api",
+			Limit:      120,
+			Window:     time.Minute,
+			FailClosed: false,
+			Logger:     logger,
+		})
+	}
+
+	var idHandler *identity.Handler
+	if pool != nil && limiter != nil && !cfg.SessionSecret.IsEmpty() {
+		idStore, err := identity.NewPostgresStore(pool)
+		if err != nil {
+			return err
+		}
+		idHasher, err := password.NewHasher(password.Options{})
+		if err != nil {
+			return err
+		}
+		idSessions, err := session.NewCodec([]byte(cfg.SessionSecret.Value()), cfg.AppEnv)
+		if err != nil {
+			return err
+		}
+		idSvc, err := identity.NewService(identity.ServiceConfig{
+			Store:           idStore,
+			Hasher:          idHasher,
+			Sessions:        idSessions,
+			Limiter:         limiter,
+			RateLimitSecret: []byte(cfg.SessionSecret.Value()),
+			Clock:           clk,
+			Logger:          logger,
+		})
+		if err != nil {
+			return err
+		}
+		idHandler, err = identity.NewHandler(idSvc, idSessions, buildAllowedOrigins(cfg), logger)
+		if err != nil {
+			return err
+		}
+	} else {
+		logger.Warn("identity endpoints disabled (requires DATABASE_URL, REDIS_ADDR, and SESSION_SECRET_FILE)")
+	}
+
+	composedAPI := compositeAPIServer{
+		version:  version,
+		commit:   commit,
+		identity: idHandler,
+	}
+
 	srv := httpserver.New(httpserver.Options{
 		Port:         cfg.Port,
 		Version:      version,
@@ -155,6 +229,8 @@ func runAPI() error {
 		CORSOrigins:  cfg.CORSOrigins,
 		MaxBodyBytes: cfg.APIMaxBodyBytes,
 		HSTS:         cfg.AppEnv == "production",
+		APIRateLimit: apiRateLimitMW,
+		APIServer:    composedAPI,
 	})
 	adminSrv := httpserver.NewAdmin(httpserver.AdminOptions{
 		Port:            cfg.AdminPort,
@@ -193,6 +269,68 @@ func runAPI() error {
 		adminSrv.Shutdown(shutdownCtx),
 	)
 	return errors.Join(runErr, shutdownErr)
+}
+
+// compositeAPIServer composes domain handlers with the infrastructure /status
+// endpoint to satisfy api.ServerInterface (CTO #6, #18).
+type compositeAPIServer struct {
+	version  string
+	commit   string
+	identity *identity.Handler
+}
+
+func (s compositeAPIServer) GetStatus(w http.ResponseWriter, _ *http.Request) {
+	httpserver.WriteJSON(w, http.StatusOK, api.StatusResponse{
+		Service: "vigia",
+		Status:  "ok",
+		Version: s.version,
+		Commit:  s.commit,
+	})
+}
+
+func (s compositeAPIServer) AuthRegister(w http.ResponseWriter, r *http.Request) {
+	if s.identity == nil {
+		w.Header().Set("Retry-After", "5")
+		httpserver.WriteError(w, r, http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "Authentication service unavailable.")
+		return
+	}
+	s.identity.AuthRegister(w, r)
+}
+
+func (s compositeAPIServer) AuthLogin(w http.ResponseWriter, r *http.Request) {
+	if s.identity == nil {
+		w.Header().Set("Retry-After", "5")
+		httpserver.WriteError(w, r, http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "Authentication service unavailable.")
+		return
+	}
+	s.identity.AuthLogin(w, r)
+}
+
+func (s compositeAPIServer) AuthLogout(w http.ResponseWriter, r *http.Request, params api.AuthLogoutParams) {
+	if s.identity == nil {
+		w.Header().Set("Retry-After", "5")
+		httpserver.WriteError(w, r, http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "Authentication service unavailable.")
+		return
+	}
+	s.identity.AuthLogout(w, r, params)
+}
+
+func (s compositeAPIServer) AuthRefresh(w http.ResponseWriter, r *http.Request, params api.AuthRefreshParams) {
+	if s.identity == nil {
+		w.Header().Set("Retry-After", "5")
+		httpserver.WriteError(w, r, http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "Authentication service unavailable.")
+		return
+	}
+	s.identity.AuthRefresh(w, r, params)
+}
+
+func buildAllowedOrigins(cfg config.Config) []string {
+	origins := make([]string, 0, len(cfg.CORSOrigins)+1)
+	origins = append(origins, cfg.CORSOrigins...)
+	if u, err := url.Parse(cfg.AppURL); err == nil && u.Scheme != "" && u.Host != "" {
+		origins = append(origins, u.Scheme+"://"+u.Host)
+	}
+	return origins
 }
 
 // enforceRuntimeDBRole applies the ADR-008 runtime role policy by environment:

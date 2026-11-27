@@ -14,7 +14,7 @@ import (
 func TestSecurityHeaders(t *testing.T) {
 	t.Run("CSP on every response, no HSTS by default", func(t *testing.T) {
 		rec := httptest.NewRecorder()
-		NewHandler(Options{}).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/status", nil))
+		NewHandler(Options{APIServer: testStatusServer{}}).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/status", nil))
 
 		if got := rec.Header().Get("Content-Security-Policy"); !strings.Contains(got, "default-src 'none'") {
 			t.Fatalf("CSP = %q, want default-src 'none'", got)
@@ -26,7 +26,7 @@ func TestSecurityHeaders(t *testing.T) {
 
 	t.Run("HSTS when enabled", func(t *testing.T) {
 		rec := httptest.NewRecorder()
-		NewHandler(Options{HSTS: true}).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/status", nil))
+		NewHandler(Options{HSTS: true, APIServer: testStatusServer{}}).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/status", nil))
 		if got := rec.Header().Get("Strict-Transport-Security"); !strings.HasPrefix(got, "max-age=") {
 			t.Fatalf("HSTS = %q, want max-age", got)
 		}
