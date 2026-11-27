@@ -44,8 +44,26 @@ func TestValidatePassword(t *testing.T) {
 			wantErr:  ErrPasswordTooLong,
 		},
 		{
-			name:     "common password rejected case-insensitively",
-			password: "Password123456",
+			name:     "common password from SecLists (123qweasdzxc) rejected",
+			password: "123qweasdzxc",
+			email:    "alice@example.com",
+			wantErr:  ErrPasswordCommon,
+		},
+		{
+			name:     "common password from SecLists (1qaz2wsx3edc) rejected case-insensitively",
+			password: "1QAZ2wsx3EDC",
+			email:    "alice@example.com",
+			wantErr:  ErrPasswordCommon,
+		},
+		{
+			name:     "common password from SecLists (qazwsxedcrfv) rejected",
+			password: "qazwsxedcrfv",
+			email:    "alice@example.com",
+			wantErr:  ErrPasswordCommon,
+		},
+		{
+			name:     "common password from SecLists (qwerty123456) rejected",
+			password: "Qwerty123456",
 			email:    "alice@example.com",
 			wantErr:  ErrPasswordCommon,
 		},
