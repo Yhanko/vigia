@@ -283,8 +283,8 @@
 
 ### 1.2 Identity, Organizations, RBAC e Audit
 - [x] `internal/platform/crypto`: envelope encryption AES-256-GCM (DEK por registo, KEK de `ENCRYPTION_KEY_FILE`, `key_id` para rotação) conforme ADR-015 *(aprovado pelo CTO em 2026-11-26; normalização de UUIDs aplicada)* 🧭
-- [~] Migration: `users`, `sessions`, `organizations`, `memberships`, `invitations`, `teams`, `team_members`, `audit_logs` (§8.2) com índices a começar pelo tenant e `UNIQUE` da §8.6 *(migrations `00002`/`00003`, `EnsureRoles` SCRAM-SHA-256, RLS e teste-guarda no catálogo implementados e verificados; aguarda revisão do CTO)*
-- [~] Padrão de repositório tenant-scoped (tipo `TenantID` obrigatório nas assinaturas) (§11.1) *(`database.TenantID` e `database.WithTenantTx` implementados e testados; aguarda revisão do CTO)*
+- [x] Migration: `users`, `sessions`, `organizations`, `memberships`, `invitations`, `teams`, `team_members`, `audit_logs` (§8.2) com índices a começar pelo tenant e `UNIQUE` da §8.6 *(migrations `00002`–`00004`, `EnsureRoles` SCRAM-SHA-256, RLS e teste-guarda no catálogo; aprovado pelo CTO em 2026-11-27 com os pendentes 9–13 fechados)* 🧭
+- [x] Padrão de repositório tenant-scoped (tipo `TenantID` obrigatório nas assinaturas) (§11.1) *(`database.TenantID` e `database.WithTenantTx`; aprovado pelo CTO em 2026-11-27)* 🧭
 - [ ] `identity`: `POST /auth/register|login|logout|refresh`, sessões revogáveis, Argon2id, cookies `HttpOnly`/`Secure`/`SameSite` (§9.2, §10.3)
 - [ ] `identity`: `/auth/verify-email`, `/auth/password/forgot|reset`, `/auth/mfa/setup|verify` (TOTP) + códigos de recuperação (§10.3)
 - [ ] **MFA obrigatório para `owner`/`admin`** antes de produção (§10.3, §22)
@@ -295,7 +295,7 @@
 - [ ] RBAC (`owner`, `admin`, `member`, `viewer`) com as permissões explícitas da §10.5, verificadas por middleware em cada request
 - [ ] `audit`: registo append-only (login/logout, MFA, roles, convites…) + `GET /organizations/:id/audit-logs` com `audit:read` e paginação por cursor (§7.10, §9.2)
 - **🔒 Blindagem de Segurança (1.2):**
-  - [ ] Argon2id com salt CSPRNG + parâmetros documentados; comparação em tempo constante
+  - [x] Argon2id com salt CSPRNG + parâmetros documentados; comparação em tempo constante *(D1 aprovada pelo CTO em 2026-11-27; ver pendente 15)*
   - [ ] Anti-enumeração de contas em login/registo/recuperação (respostas genéricas e timing consistente)
   - [ ] Rate limit + lockout progressivo em `/auth/login`, `/auth/password/*`, `/auth/mfa/*`
   - [ ] CSRF para cookie-auth (`SameSite` + token CSRF ou verificação de `Origin`) e rotação do ID de sessão no login/elevação de privilégio
