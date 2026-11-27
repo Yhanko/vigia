@@ -132,6 +132,8 @@ func (h *Handler) writeError(w http.ResponseWriter, r *http.Request, err error) 
 	switch {
 	case errors.Is(err, ErrInvalidInput):
 		httpserver.WriteError(w, r, http.StatusBadRequest, "VALIDATION_FAILED", "Invalid credential parameters.")
+	case errors.Is(err, ErrReauthRequired):
+		httpserver.WriteError(w, r, http.StatusUnauthorized, "REAUTH_REQUIRED", "Recent authentication is required for this operation.")
 	case errors.Is(err, ErrMFARequired):
 		httpserver.WriteError(w, r, http.StatusForbidden, "MFA_SETUP_REQUIRED", "Multi-factor authentication setup is required for privileged roles.")
 	case errors.Is(err, ErrForbidden):

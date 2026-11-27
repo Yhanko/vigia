@@ -34,6 +34,7 @@ const (
 var (
 	ErrForbidden       = errors.New("credentials: forbidden")
 	ErrMFARequired     = errors.New("credentials: mfa required for privileged role")
+	ErrReauthRequired  = errors.New("credentials: recent authentication required")
 	ErrNotFound        = errors.New("credentials: credential not found")
 	ErrInvalidInput    = errors.New("credentials: invalid input")
 	ErrPrefixCollision = errors.New("credentials: failed to allocate unique prefix after retries")
@@ -224,6 +225,9 @@ func (s *Service) Close(ctx context.Context) {
 
 // Create generates and stores a new API credential, returning the raw secret (or DSN) ONCE.
 func (s *Service) Create(ctx context.Context, tenantID database.TenantID, actor organizations.Actor, in CreateInput) (CreatedCredential, error) {
+	if err := s.requireRecentAuth(actor); err != nil {
+		return CreatedCredential{}, err
+	}
 	name := strings.TrimSpace(in.Name)
 	if name == "" || len(name) > 120 {
 		return CreatedCredential{}, ErrInvalidInput
@@ -428,6 +432,9 @@ func (s *Service) List(ctx context.Context, tenantID database.TenantID, actor or
 
 // Revoke immediately revokes a credential in PostgreSQL and evicts its Redis cache entry.
 func (s *Service) Revoke(ctx context.Context, tenantID database.TenantID, actor organizations.Actor, credentialID string) error {
+	if err := s.requireRecentAuth(actor); err != nil {
+		return err
+	}
 	orgUUID, err := parseUUID(tenantID.String())
 	if err != nil {
 		return ErrInvalidInput
@@ -492,6 +499,9 @@ func (s *Service) Revoke(ctx context.Context, tenantID database.TenantID, actor 
 // Rotate creates a replacement credential with the same metadata and either sets
 // an overlap expiry on the old credential or revokes it immediately if overlap <= 0.
 func (s *Service) Rotate(ctx context.Context, tenantID database.TenantID, actor organizations.Actor, credentialID string, overlap time.Duration) (CreatedCredential, error) {
+	if err := s.requireRecentAuth(actor); err != nil {
+		return CreatedCredential{}, err
+	}
 	orgUUID, err := parseUUID(tenantID.String())
 	if err != nil {
 		return CreatedCredential{}, ErrInvalidInput
@@ -772,6 +782,14 @@ func (s *Service) checkAnomalousIP(ctx context.Context, orgID, credID, clientIP 
 			Changes:        changes,
 		})
 	})
+}
+
+func (s *Service) requireRecentAuth(actor organizations.Actor) error {
+	now := s.clk.Now().UTC()
+	if actor.LastAuthAt.IsZero() || now.Sub(actor.LastAuthAt) > organizations.ReauthWindow {
+		return ErrReauthRequired
+	}
+	return nil
 }
 
 func (s *Service) requirePermission(ctx context.Context, qtx *sqlcgen.Queries, orgUUID, userUUID pgtype.UUID, mfaEnabled bool, perm organizations.Permission) error {
