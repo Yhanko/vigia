@@ -75,4 +75,3 @@ ALTER FUNCTION lookup_api_credential_by_prefix(text, text) OWNER TO vigia_define
 REVOKE EXECUTE ON FUNCTION lookup_api_credential_by_prefix(text, text) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION lookup_api_credential_by_prefix(text, text) TO vigia_app;
 REVOKE SELECT ON projects FROM vigia_definer;
-REVOKE SELECT ON organizations FROM vigia_definer;

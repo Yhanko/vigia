@@ -7,6 +7,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"net/url"
 	"strings"
 	"testing"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 	"github.com/testcontainers/testcontainers-go/wait"
@@ -580,33 +582,85 @@ func TestDatabaseIntegration(t *testing.T) {
 				bTeamID, bTeamOrgID, bTeamName, bTeamSlug, teamB, orgB)
 		}
 
-		for _, sig := range []string{
-			"public.list_user_organizations(uuid)",
-			"public.lookup_invitation_by_token_hash(bytea)",
-		} {
-			var owner string
-			var publicExec, appExec bool
-			if err := adminPool.QueryRow(ctx, `
-				SELECT r.rolname,
-				       has_function_privilege('public', $1::regprocedure, 'EXECUTE'),
-				       has_function_privilege('vigia_app', $1::regprocedure, 'EXECUTE')
-				FROM pg_proc p
-				JOIN pg_roles r ON r.oid = p.proowner
-				WHERE p.oid = $1::regprocedure
-			`, sig).Scan(&owner, &publicExec, &appExec); err != nil {
-				t.Fatalf("inspect function %s: %v", sig, err)
-			}
-			if owner != "vigia_definer" {
-				t.Fatalf("function %s owner = %q, want vigia_definer", sig, owner)
-			}
-			if publicExec {
-				t.Fatalf("function %s grants EXECUTE to PUBLIC", sig)
-			}
-			if !appExec {
-				t.Fatalf("function %s missing EXECUTE for vigia_app", sig)
+		// Dynamic catalog guard (CTO #33): EVERY SECURITY DEFINER function in public schema
+		// must be owned by vigia_definer, pin search_path in proconfig, and revoke PUBLIC EXECUTE.
+		checkedFuncs, violations, err := auditSecurityDefinerFunctions(ctx, adminPool)
+		if err != nil {
+			t.Fatalf("auditSecurityDefinerFunctions: %v", err)
+		}
+		if len(violations) > 0 {
+			t.Fatalf("SECURITY DEFINER guard violations: %v", violations)
+		}
+		seenLookupCred := false
+		for _, fn := range checkedFuncs {
+			if fn == "lookup_api_credential_by_prefix" {
+				seenLookupCred = true
 			}
 		}
+		if !seenLookupCred {
+			t.Fatalf("dynamic SECURITY DEFINER guard did not find lookup_api_credential_by_prefix; saw %v", checkedFuncs)
+		}
+
+		// Negative proof (CTO #33): creating a non-compliant SECURITY DEFINER function MUST be caught.
+		if _, err := adminPool.Exec(ctx, `CREATE FUNCTION public._test_bad_secdef() RETURNS int LANGUAGE sql SECURITY DEFINER AS $$ SELECT 1 $$`); err != nil {
+			t.Fatalf("create negative test function: %v", err)
+		}
+		t.Cleanup(func() {
+			_, _ = adminPool.Exec(context.Background(), `DROP FUNCTION IF EXISTS public._test_bad_secdef()`)
+		})
+		_, badViolations, err := auditSecurityDefinerFunctions(ctx, adminPool)
+		if err != nil {
+			t.Fatalf("auditSecurityDefinerFunctions (negative): %v", err)
+		}
+		if len(badViolations) == 0 {
+			t.Fatal("expected SECURITY DEFINER guard to catch _test_bad_secdef, but got 0 violations")
+		}
+		if _, err := adminPool.Exec(ctx, `DROP FUNCTION public._test_bad_secdef()`); err != nil {
+			t.Fatalf("drop negative test function: %v", err)
+		}
 	})
+}
+
+func auditSecurityDefinerFunctions(ctx context.Context, adminPool *pgxpool.Pool) (checked []string, violations []string, err error) {
+	rows, err := adminPool.Query(ctx, `
+		SELECT p.proname,
+		       r.rolname,
+		       EXISTS (
+		           SELECT 1
+		           FROM unnest(coalesce(p.proconfig, ARRAY[]::text[])) cfg
+		           WHERE cfg LIKE 'search_path=%'
+		       ) AS has_search_path,
+		       has_function_privilege('public', p.oid, 'EXECUTE') AS public_exec
+		FROM pg_proc p
+		JOIN pg_namespace n ON n.oid = p.pronamespace
+		JOIN pg_roles r ON r.oid = p.proowner
+		WHERE n.nspname = 'public'
+		  AND p.prosecdef = true
+		ORDER BY p.proname
+	`)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var name, owner string
+		var hasSearchPath, publicExec bool
+		if err := rows.Scan(&name, &owner, &hasSearchPath, &publicExec); err != nil {
+			return nil, nil, err
+		}
+		checked = append(checked, name)
+		if owner != "vigia_definer" {
+			violations = append(violations, fmt.Sprintf("%s: owner=%q (want vigia_definer)", name, owner))
+		}
+		if !hasSearchPath {
+			violations = append(violations, fmt.Sprintf("%s: missing pinned search_path in proconfig", name))
+		}
+		if publicExec {
+			violations = append(violations, fmt.Sprintf("%s: PUBLIC has EXECUTE", name))
+		}
+	}
+	return checked, violations, rows.Err()
 }
 
 func replaceDSNUser(t *testing.T, dsn, user, pass string) string {
