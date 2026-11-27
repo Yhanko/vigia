@@ -131,7 +131,7 @@ func (c *Codec) BuildCookie(token string, expiresAt time.Time, maxAge time.Durat
 	if maxAgeSec < 0 {
 		maxAgeSec = 0
 	}
-	return &http.Cookie{
+	return &http.Cookie{ //nolint:gosec // G124: ADR-005 §3.1 mandates HttpOnly, SameSite=Lax, and Secure=true in staging/production (HTTP localhost only in development)
 		Name:     c.CookieName(),
 		Value:    token,
 		Path:     "/",
@@ -146,7 +146,7 @@ func (c *Codec) BuildCookie(token string, expiresAt time.Time, maxAge time.Durat
 // ClearCookie constructs an expired cookie that instructs browsers to delete
 // the active session cookie on logout.
 func (c *Codec) ClearCookie() *http.Cookie {
-	return &http.Cookie{
+	return &http.Cookie{ //nolint:gosec // G124: ADR-005 §3.1 mandates HttpOnly, SameSite=Lax, and Secure=true in staging/production (HTTP localhost only in development)
 		Name:     c.CookieName(),
 		Value:    "",
 		Path:     "/",
