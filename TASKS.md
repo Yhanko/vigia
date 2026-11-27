@@ -111,6 +111,7 @@
 | 2026-11-26 | **WhatsApp só por API oficial** (WhatsApp Business Platform/Cloud API da Meta ou BSP). Proibido usar bibliotecas não oficiais (Baileys, whatsapp-web.js…) | Violação dos termos da Meta → banimento do número e risco de dados |
 | 2026-11-26 | **No MVP o "acknowledge" é o estado do issue** (`resolved`/`ignored`), sem entidade Incident; os incidentes completos chegam com os alertas de métricas (Fase 4) | Reduz o MVP sem perder o essencial |
 | 2026-11-26 | **O MVP inclui um go-live mínimo** (2.9): não se dá acesso a clientes sem TLS, backups com restore testado, monitorização externa e runbooks essenciais | Os dados de erros dos clientes são sensíveis desde o primeiro dia |
+| 2026-11-27 | **Fase 1 fecha sem branch protection em `staging`/`main`**, por decisão do CEO (risco aceite). Até ser activada: só o CTO promove para `staging`/`main`, sempre por fast-forward de um commit com os 5 jobs verdes em `development`, nunca com force-push; o Gemini nunca faz push para esses branches. **Prazo: activar antes do go-live (2.9)**, que passa a ser condição do go-live | Decisão do CEO; o risco (push acidental ou reescrita de histórico em `main`) é mitigado pelo processo enquanto não há clientes em produção |
 
 ---
 
@@ -119,7 +120,7 @@
 | Fase | Tema | Estado | Critério de saída |
 |---|---|---|---|
 | 0 | Discovery, arquitectura e contratos | `[x]` (porta aprovada em 2026-11-26) | Scope aprovado, ADRs da fase seguinte escritos, riscos listados |
-| 1 | Fundação do backend (auth, orgs, projectos, credenciais, CI) | `[~]` **← fase activa** (porta aprovada pelo CTO em 2026-11-27; falta CI verde do push, branch protection 👔 e autorização do CEO) | Auth + isolamento de tenant em E2E; pipeline verde; backup/restore testado |
+| 1 | Fundação do backend (auth, orgs, projectos, credenciais, CI) | `[~]` **← fase activa** (porta aprovada pelo CTO em 2026-11-27; falta CI verde do push e autorização do CEO; branch protection adiada para antes do go-live por decisão do CEO) | Auth + isolamento de tenant em E2E; pipeline verde; backup/restore testado |
 | **2** | **MVP: Error tracking compatível Sentry + alertas + email/Telegram/WhatsApp + UI mínima + go-live** | `[ ]` | SDKs Sentry de ≥ 5 plataformas enviam erros só com troca de DSN; alerta → notificação nos 3 canais com falhas simuladas; go-live mínimo aprovado |
 | 3 | Métricas e ingestão de telemetria | `[ ]` | Load test base aprovado; sobrecarga documentada; retenção validada |
 | 4 | Alertas de métricas, incidentes e tempo real (SSE) | `[ ]` | E2E ingest → alerta → incidente → notificação |
@@ -238,7 +239,7 @@
 - [x] `.golangci.yml`: `gosec`, `errcheck`, `bodyclose`, `noctx`, `errorlint`, `rowserrcheck`, `sqlclosecheck`, `forbidigo` (`http.Get`/`http.DefaultClient`/`fmt.Print` proibidos fora do CLI), `goimports`
 - [x] Fronteiras (§4.5): `depguard` impede `internal/platform` de importar `internal/modules` e proíbe `math/rand`, `log`, `io/ioutil`, `github.com/pkg/errors`. Entre módulos, a regra é estrutural: o código privado de cada módulo vive em `internal/modules/<x>/internal/` e o compilador do Go impede outros módulos de o importar
 - [x] Dependabot (`gomod`, `github-actions`, `docker`) com `cooldown` de 7 dias (§11.6)
-- [ ] **Branch protection** em `staging` e `main`: 5 jobs (`lint`, `test`, `integration`, `security`, `docker`) obrigatórios, bloquear force-push e eliminação; **não** activar "Require a pull request" (o fluxo é por fast-forward de commits já verdes em `development`, e o GitHub aceita o push porque o mesmo SHA já tem os checks) — *acção manual 👔 no GitHub*
+- [ ] *(adiado por decisão do CEO em 2026-11-27; obrigatório antes do go-live 2.9 — ver registo de decisões)* **Branch protection** em `staging` e `main`: 5 jobs (`lint`, `test`, `integration`, `security`, `docker`) obrigatórios, bloquear force-push e eliminação; **não** activar "Require a pull request" (o fluxo é por fast-forward de commits já verdes em `development`, e o GitHub aceita o push porque o mesmo SHA já tem os checks) — *acção manual 👔 no GitHub*
 - [x] `sqlc diff` e `oapi-codegen` sem diferenças no CI (quando houver código gerado; ver 1.1)
 
 ### 1.1 Fundação da plataforma (`platform/` + CLI)
@@ -465,6 +466,7 @@
 - [ ] Load test da ingestão Sentry (rajadas de um SDK em loop de erros) com backpressure `429` + `X-Sentry-Rate-Limits` comprovado
 - [ ] Documentação pública: "Migrar do Sentry em 2 minutos" (só trocar o DSN) e limitações conhecidas (sem performance/replays/profiling no MVP)
 - [ ] **Go-live mínimo** (subconjunto da Fase 8, ADR-010):
+  - [ ] **Branch protection** em `staging` e `main` activa (adiada da Fase 1 por decisão do CEO em 2026-11-27) — *acção manual 👔 no GitHub*
   - [ ] Servidor de produção com Docker Compose, TLS 1.2+ automático (Caddy/Traefik), firewall, BD e Redis sem portas públicas
   - [ ] Graceful shutdown e resource limits (CPU/memória/processos) em todos os processos: `api`, `worker`, `scheduler`, `dispatcher` (§22)
   - [ ] Pipeline de deploy com imagem por SHA, staging com dados sintéticos e smoke test; rollback ensaiado
