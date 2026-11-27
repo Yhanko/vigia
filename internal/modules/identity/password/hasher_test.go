@@ -113,6 +113,7 @@ func TestHasherMalformedPHC(t *testing.T) {
 		{"missing segments", "$argon2id$v=19$m=19456,t=2,p=1$AAAAAAAAAAAAAAAAAAAAAA"},
 		{"bad params order", "$argon2id$v=19$t=2,m=19456,p=1$AAAAAAAAAAAAAAAAAAAAAA$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"},
 		{"zero memory", "$argon2id$v=19$m=0,t=2,p=1$AAAAAAAAAAAAAAAAAAAAAA$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"},
+		{"memory above 2x default", "$argon2id$v=19$m=38913,t=2,p=1$AAAAAAAAAAAAAAAAAAAAAA$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"},
 		{"excessive memory", "$argon2id$v=19$m=99999999,t=2,p=1$AAAAAAAAAAAAAAAAAAAAAA$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"},
 		{"invalid salt base64", "$argon2id$v=19$m=19456,t=2,p=1$!!!not-b64!!!$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"},
 		{"salt too short", "$argon2id$v=19$m=19456,t=2,p=1$AAAA$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"},
@@ -151,6 +152,42 @@ func TestHasherSemaphoreSaturation(t *testing.T) {
 	}
 	if err := h.DummyVerify(context.Background()); !errors.Is(err, ErrHasherBusy) {
 		t.Fatalf("DummyVerify() when saturated = %v, want ErrHasherBusy", err)
+	}
+}
+
+func TestHasherBoundsAndPasswordMaxBytes(t *testing.T) {
+	badParams := []struct {
+		name string
+		p    Params
+	}{
+		{"salt > 64", Params{MemoryKiB: DefaultMemoryKiB, Iterations: 2, Parallelism: 1, SaltBytes: 65, KeyBytes: 32}},
+		{"key > 64", Params{MemoryKiB: DefaultMemoryKiB, Iterations: 2, Parallelism: 1, SaltBytes: 16, KeyBytes: 65}},
+		{"memory > 2x default", Params{MemoryKiB: maxVerifyMemoryKiB + 1, Iterations: 2, Parallelism: 1, SaltBytes: 16, KeyBytes: 32}},
+	}
+	for _, tc := range badParams {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := NewHasher(Options{Params: tc.p}); err == nil {
+				t.Fatalf("NewHasher(%s) expected error, got nil", tc.name)
+			}
+		})
+	}
+
+	h, err := NewHasher(Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+
+	tooLong := strings.Repeat("a", MaxPasswordBytes+1)
+	if _, err := h.Hash(ctx, tooLong); !errors.Is(err, ErrPasswordTooLong) {
+		t.Fatalf("Hash(513B) err = %v, want ErrPasswordTooLong", err)
+	}
+	encoded, err := h.Hash(ctx, strings.Repeat("a", MaxPasswordBytes))
+	if err != nil {
+		t.Fatalf("Hash(512B) unexpected error: %v", err)
+	}
+	if ok, err := h.Verify(ctx, tooLong, encoded); ok || !errors.Is(err, ErrPasswordTooLong) {
+		t.Fatalf("Verify(513B) = (%v, %v), want (false, ErrPasswordTooLong)", ok, err)
 	}
 }
 

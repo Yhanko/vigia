@@ -29,9 +29,13 @@ const (
 	DefaultMaxConcurrent         = 4
 	DefaultAcquireTimeout        = 250 * time.Millisecond
 
+	// MaxPasswordBytes is a defense-in-depth cap enforced by Hash/Verify before
+	// acquiring an Argon2id slot (domain policy separately caps passwords at 128 runes).
+	MaxPasswordBytes = 512
+
 	// Bounds for verifying stored PHC hashes so a crafted hash cannot trigger
-	// an unbounded memory allocation.
-	maxVerifyMemoryKiB   uint32 = 256 * 1024 // 256 MiB
+	// an unbounded memory allocation inside a 256 MiB container (CTO #15).
+	maxVerifyMemoryKiB   uint32 = 2 * DefaultMemoryKiB // 38912 KiB (38 MiB)
 	maxVerifyIterations  uint32 = 16
 	maxVerifyParallelism uint8  = 8
 	minSaltBytes                = 8
@@ -49,6 +53,9 @@ var (
 	// ErrInvalidHash is returned when a stored PHC string is malformed or uses
 	// an unsupported algorithm/version/parameter range.
 	ErrInvalidHash = errors.New("password: invalid phc argon2id hash")
+
+	// ErrPasswordTooLong is returned when a password exceeds MaxPasswordBytes.
+	ErrPasswordTooLong = errors.New("password: exceeds maximum byte length")
 )
 
 // Params configures Argon2id cost and output sizes.
@@ -94,7 +101,11 @@ func NewHasher(opts Options) (*Hasher, error) {
 	if p == (Params{}) {
 		p = DefaultParams()
 	}
-	if p.MemoryKiB == 0 || p.Iterations == 0 || p.Parallelism == 0 || p.SaltBytes < minSaltBytes || p.KeyBytes < minKeyBytes {
+	if p.MemoryKiB == 0 || p.MemoryKiB > maxVerifyMemoryKiB ||
+		p.Iterations == 0 || p.Iterations > maxVerifyIterations ||
+		p.Parallelism == 0 || p.Parallelism > maxVerifyParallelism ||
+		p.SaltBytes < minSaltBytes || p.SaltBytes > maxSaltBytes ||
+		p.KeyBytes < minKeyBytes || p.KeyBytes > maxKeyBytes {
 		return nil, errors.New("password: invalid argon2id parameters")
 	}
 
@@ -124,6 +135,9 @@ func NewHasher(opts Options) (*Hasher, error) {
 
 // Hash derives an Argon2id PHC string for password using a fresh CSPRNG salt.
 func (h *Hasher) Hash(ctx context.Context, password string) (string, error) {
+	if len(password) > MaxPasswordBytes {
+		return "", ErrPasswordTooLong
+	}
 	if err := h.acquire(ctx); err != nil {
 		return "", err
 	}
@@ -157,6 +171,9 @@ func (h *Hasher) Hash(ctx context.Context, password string) (string, error) {
 // Verify checks password against a PHC-encoded Argon2id hash using
 // constant-time comparison.
 func (h *Hasher) Verify(ctx context.Context, password, encodedHash string) (bool, error) {
+	if len(password) > MaxPasswordBytes {
+		return false, ErrPasswordTooLong
+	}
 	parsed, err := parsePHC(encodedHash)
 	if err != nil {
 		return false, err
