@@ -174,7 +174,7 @@ func IdempotencyMiddleware(opts IdempotencyOptions) func(http.Handler) http.Hand
 				w.Header().Set("Content-Type", "application/json; charset=utf-8")
 				w.Header().Set("Idempotency-Replayed", "true")
 				w.WriteHeader(existing.Status)
-				_, _ = w.Write(existing.Body)
+				_, _ = w.Write(existing.Body) //nolint:gosec // G705: replays server-generated JSON with Content-Type: application/json and nosniff
 				return
 			}
 
