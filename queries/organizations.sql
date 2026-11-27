@@ -105,6 +105,7 @@ FROM invitations
 WHERE organization_id = $1
   AND accepted_at IS NULL
   AND revoked_at IS NULL
+  AND expires_at > sqlc.arg(now)::timestamptz
 ORDER BY created_at DESC, id DESC
 LIMIT sqlc.arg(page_limit);
 

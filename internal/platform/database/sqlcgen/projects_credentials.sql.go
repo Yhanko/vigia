@@ -190,6 +190,46 @@ func (q *Queries) DeleteEnvironment(ctx context.Context, arg DeleteEnvironmentPa
 	return result.RowsAffected(), nil
 }
 
+const getActiveAPICredentialByID = `-- name: GetActiveAPICredentialByID :one
+SELECT project_id, environment_id, kind, name, prefix, public_key, scopes, allowed_origins
+FROM api_credentials
+WHERE organization_id = $1
+  AND id = $2
+  AND revoked_at IS NULL
+`
+
+type GetActiveAPICredentialByIDParams struct {
+	OrganizationID pgtype.UUID `json:"organization_id"`
+	ID             pgtype.UUID `json:"id"`
+}
+
+type GetActiveAPICredentialByIDRow struct {
+	ProjectID      pgtype.UUID `json:"project_id"`
+	EnvironmentID  pgtype.UUID `json:"environment_id"`
+	Kind           string      `json:"kind"`
+	Name           string      `json:"name"`
+	Prefix         string      `json:"prefix"`
+	PublicKey      *string     `json:"public_key"`
+	Scopes         []string    `json:"scopes"`
+	AllowedOrigins []string    `json:"allowed_origins"`
+}
+
+func (q *Queries) GetActiveAPICredentialByID(ctx context.Context, arg GetActiveAPICredentialByIDParams) (GetActiveAPICredentialByIDRow, error) {
+	row := q.db.QueryRow(ctx, getActiveAPICredentialByID, arg.OrganizationID, arg.ID)
+	var i GetActiveAPICredentialByIDRow
+	err := row.Scan(
+		&i.ProjectID,
+		&i.EnvironmentID,
+		&i.Kind,
+		&i.Name,
+		&i.Prefix,
+		&i.PublicKey,
+		&i.Scopes,
+		&i.AllowedOrigins,
+	)
+	return i, err
+}
+
 const getEnvironmentByID = `-- name: GetEnvironmentByID :one
 SELECT id, organization_id, project_id, name, is_protected, created_at, updated_at
 FROM environments
@@ -480,6 +520,25 @@ func (q *Queries) RevokeAllProjectCredentials(ctx context.Context, arg RevokeAll
 		return nil, err
 	}
 	return items, nil
+}
+
+const setAPICredentialOverlapExpiry = `-- name: SetAPICredentialOverlapExpiry :exec
+UPDATE api_credentials
+SET expires_at = LEAST(COALESCE(expires_at, $3::timestamptz), $3::timestamptz)
+WHERE organization_id = $1
+  AND id = $2
+  AND revoked_at IS NULL
+`
+
+type SetAPICredentialOverlapExpiryParams struct {
+	OrganizationID pgtype.UUID        `json:"organization_id"`
+	ID             pgtype.UUID        `json:"id"`
+	ExpiresAt      pgtype.Timestamptz `json:"expires_at"`
+}
+
+func (q *Queries) SetAPICredentialOverlapExpiry(ctx context.Context, arg SetAPICredentialOverlapExpiryParams) error {
+	_, err := q.db.Exec(ctx, setAPICredentialOverlapExpiry, arg.OrganizationID, arg.ID, arg.ExpiresAt)
+	return err
 }
 
 const softDeleteProject = `-- name: SoftDeleteProject :one

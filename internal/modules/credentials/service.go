@@ -524,22 +524,26 @@ func (s *Service) Rotate(ctx context.Context, tenantID database.TenantID, actor 
 		if err := s.requirePermission(ctx, qtx, orgUUID, userUUID, actor.MFAEnabled, organizations.PermAPIKeyRevoke); err != nil {
 			return err
 		}
-		var pID, eID pgtype.UUID
-		row := tx.QueryRow(ctx, `
-			SELECT project_id, environment_id, kind, name, prefix, public_key, scopes, allowed_origins
-			FROM api_credentials
-			WHERE organization_id = $1 AND id = $2 AND revoked_at IS NULL
-		`, orgUUID, credUUID)
-		if scanErr := row.Scan(&pID, &eID, &origKind, &origName, &origPrefix, &origPublicKey, &origScopes, &origOrigins); scanErr != nil {
-			if errors.Is(scanErr, pgx.ErrNoRows) {
+		row, qErr := qtx.GetActiveAPICredentialByID(ctx, sqlcgen.GetActiveAPICredentialByIDParams{
+			OrganizationID: orgUUID,
+			ID:             credUUID,
+		})
+		if qErr != nil {
+			if errors.Is(qErr, pgx.ErrNoRows) {
 				return ErrNotFound
 			}
-			return scanErr
+			return qErr
 		}
-		projID = pID.String()
-		if eID.Valid {
-			envID = eID.String()
+		projID = row.ProjectID.String()
+		if row.EnvironmentID.Valid {
+			envID = row.EnvironmentID.String()
 		}
+		origKind = row.Kind
+		origName = row.Name
+		origPrefix = row.Prefix
+		origPublicKey = row.PublicKey
+		origScopes = row.Scopes
+		origOrigins = row.AllowedOrigins
 		return nil
 	})
 	if err != nil {
@@ -566,12 +570,11 @@ func (s *Service) Rotate(ctx context.Context, tenantID database.TenantID, actor 
 	} else {
 		exp := now.Add(overlap)
 		_ = database.WithTenantTx(ctx, s.pool, tenantID, func(tx pgx.Tx) error {
-			_, uErr := tx.Exec(ctx, `
-				UPDATE api_credentials
-				SET expires_at = LEAST(COALESCE(expires_at, $3::timestamptz), $3::timestamptz)
-				WHERE organization_id = $1 AND id = $2 AND revoked_at IS NULL
-			`, orgUUID, credUUID, exp)
-			return uErr
+			return s.q.WithTx(tx).SetAPICredentialOverlapExpiry(ctx, sqlcgen.SetAPICredentialOverlapExpiryParams{
+				OrganizationID: orgUUID,
+				ID:             credUUID,
+				ExpiresAt:      pgtype.Timestamptz{Time: exp, Valid: true},
+			})
 		})
 		s.InvalidateCache(ctx, origKind, origPrefix, origPublicKey)
 	}

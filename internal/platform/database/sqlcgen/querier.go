@@ -36,6 +36,7 @@ type Querier interface {
 	DeleteMembership(ctx context.Context, arg DeleteMembershipParams) (int64, error)
 	DeleteTeam(ctx context.Context, arg DeleteTeamParams) (int64, error)
 	EnableUserMFA(ctx context.Context, arg EnableUserMFAParams) (int64, error)
+	GetActiveAPICredentialByID(ctx context.Context, arg GetActiveAPICredentialByIDParams) (GetActiveAPICredentialByIDRow, error)
 	GetActiveSessionByTokenHash(ctx context.Context, arg GetActiveSessionByTokenHashParams) (GetActiveSessionByTokenHashRow, error)
 	GetEnvironmentByID(ctx context.Context, arg GetEnvironmentByIDParams) (Environment, error)
 	GetMembershipByID(ctx context.Context, arg GetMembershipByIDParams) (Membership, error)
@@ -72,6 +73,7 @@ type Querier interface {
 	RevokeOtherUserSessions(ctx context.Context, arg RevokeOtherUserSessionsParams) (int64, error)
 	RevokeSession(ctx context.Context, arg RevokeSessionParams) (int64, error)
 	ScheduleOrganizationDeletion(ctx context.Context, arg ScheduleOrganizationDeletionParams) (Organization, error)
+	SetAPICredentialOverlapExpiry(ctx context.Context, arg SetAPICredentialOverlapExpiryParams) error
 	SetUserPendingMFASecret(ctx context.Context, arg SetUserPendingMFASecretParams) error
 	SoftDeleteProject(ctx context.Context, arg SoftDeleteProjectParams) (Project, error)
 	TouchAPICredentialLastUsed(ctx context.Context, arg TouchAPICredentialLastUsedParams) error

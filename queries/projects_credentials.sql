@@ -102,3 +102,17 @@ UPDATE api_credentials
 SET last_used_at = sqlc.arg(last_used_at)::timestamptz
 WHERE organization_id = $1
   AND id = $2;
+
+-- name: GetActiveAPICredentialByID :one
+SELECT project_id, environment_id, kind, name, prefix, public_key, scopes, allowed_origins
+FROM api_credentials
+WHERE organization_id = $1
+  AND id = $2
+  AND revoked_at IS NULL;
+
+-- name: SetAPICredentialOverlapExpiry :exec
+UPDATE api_credentials
+SET expires_at = LEAST(COALESCE(expires_at, sqlc.arg(expires_at)::timestamptz), sqlc.arg(expires_at)::timestamptz)
+WHERE organization_id = $1
+  AND id = $2
+  AND revoked_at IS NULL;

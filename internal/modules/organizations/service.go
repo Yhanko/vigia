@@ -863,39 +863,30 @@ func (s *Service) ListInvitations(ctx context.Context, tenantID database.TenantI
 		return nil, err
 	}
 	orgUUID := mustScanUUID(tenantID.String())
+	now := s.clk.Now().UTC()
 	var out []Invitation
 	err := database.WithTenantTx(ctx, s.pool, tenantID, func(tx pgx.Tx) error {
-		rows, err := tx.Query(ctx, `
-			SELECT id, organization_id, email, role, invited_by, expires_at, created_at
-			FROM invitations
-			WHERE organization_id = $1
-			  AND accepted_at IS NULL
-			  AND revoked_at IS NULL
-			  AND expires_at > now()
-			ORDER BY created_at DESC, id DESC
-		`, orgUUID)
+		rows, err := s.q.WithTx(tx).ListOrganizationInvitations(ctx, sqlcgen.ListOrganizationInvitationsParams{
+			OrganizationID: orgUUID,
+			Now:            pgtype.Timestamptz{Time: now, Valid: true},
+			PageLimit:      defaultListLimit,
+		})
 		if err != nil {
 			return err
 		}
-		defer rows.Close()
-		for rows.Next() {
-			var id, oid, invBy pgtype.UUID
-			var email, role string
-			var expAt, crAt pgtype.Timestamptz
-			if err := rows.Scan(&id, &oid, &email, &role, &invBy, &expAt, &crAt); err != nil {
-				return err
-			}
+		out = make([]Invitation, 0, len(rows))
+		for _, r := range rows {
 			out = append(out, Invitation{
-				ID:             id.String(),
-				OrganizationID: oid.String(),
-				Email:          email,
-				Role:           role,
-				InvitedBy:      invBy.String(),
-				ExpiresAt:      expAt.Time.UTC(),
-				CreatedAt:      crAt.Time.UTC(),
+				ID:             r.ID.String(),
+				OrganizationID: r.OrganizationID.String(),
+				Email:          r.Email,
+				Role:           r.Role,
+				InvitedBy:      r.InvitedBy.String(),
+				ExpiresAt:      r.ExpiresAt.Time.UTC(),
+				CreatedAt:      r.CreatedAt.Time.UTC(),
 			})
 		}
-		return rows.Err()
+		return nil
 	})
 	return out, err
 }
@@ -909,18 +900,19 @@ func (s *Service) RevokeInvitation(ctx context.Context, tenantID database.Tenant
 	invUUID := mustScanUUID(invitationID)
 	now := s.clk.Now().UTC()
 	return database.WithTenantTx(ctx, s.pool, tenantID, func(tx pgx.Tx) error {
-		tag, err := tx.Exec(ctx, `
-			UPDATE invitations
-			SET revoked_at = $3::timestamptz
-			WHERE organization_id = $1 AND id = $2 AND accepted_at IS NULL AND revoked_at IS NULL
-		`, orgUUID, invUUID, now)
+		qtx := s.q.WithTx(tx)
+		affected, err := qtx.RevokeInvitation(ctx, sqlcgen.RevokeInvitationParams{
+			OrganizationID: orgUUID,
+			ID:             invUUID,
+			RevokedAt:      pgtype.Timestamptz{Time: now, Valid: true},
+		})
 		if err != nil {
 			return err
 		}
-		if tag.RowsAffected() == 0 {
+		if affected == 0 {
 			return ErrNotFound
 		}
-		s.writeAuditTx(ctx, s.q.WithTx(tx), orgUUID, actor, "invitation.revoked", "invitation", invitationID, "success", nil)
+		s.writeAuditTx(ctx, qtx, orgUUID, actor, "invitation.revoked", "invitation", invitationID, "success", nil)
 		return nil
 	})
 }
@@ -933,17 +925,18 @@ func (s *Service) DeleteTeam(ctx context.Context, tenantID database.TenantID, ac
 	orgUUID := mustScanUUID(tenantID.String())
 	tUUID := mustScanUUID(teamID)
 	return database.WithTenantTx(ctx, s.pool, tenantID, func(tx pgx.Tx) error {
-		tag, err := tx.Exec(ctx, `
-			DELETE FROM teams
-			WHERE organization_id = $1 AND id = $2
-		`, orgUUID, tUUID)
+		qtx := s.q.WithTx(tx)
+		affected, err := qtx.DeleteTeam(ctx, sqlcgen.DeleteTeamParams{
+			OrganizationID: orgUUID,
+			ID:             tUUID,
+		})
 		if err != nil {
 			return err
 		}
-		if tag.RowsAffected() == 0 {
+		if affected == 0 {
 			return ErrNotFound
 		}
-		s.writeAuditTx(ctx, s.q.WithTx(tx), orgUUID, actor, "team.deleted", "team", teamID, "success", nil)
+		s.writeAuditTx(ctx, qtx, orgUUID, actor, "team.deleted", "team", teamID, "success", nil)
 		return nil
 	})
 }

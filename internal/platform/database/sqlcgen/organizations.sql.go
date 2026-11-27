@@ -451,13 +451,15 @@ FROM invitations
 WHERE organization_id = $1
   AND accepted_at IS NULL
   AND revoked_at IS NULL
+  AND expires_at > $2::timestamptz
 ORDER BY created_at DESC, id DESC
-LIMIT $2
+LIMIT $3
 `
 
 type ListOrganizationInvitationsParams struct {
-	OrganizationID pgtype.UUID `json:"organization_id"`
-	PageLimit      int32       `json:"page_limit"`
+	OrganizationID pgtype.UUID        `json:"organization_id"`
+	Now            pgtype.Timestamptz `json:"now"`
+	PageLimit      int32              `json:"page_limit"`
 }
 
 type ListOrganizationInvitationsRow struct {
@@ -473,7 +475,7 @@ type ListOrganizationInvitationsRow struct {
 }
 
 func (q *Queries) ListOrganizationInvitations(ctx context.Context, arg ListOrganizationInvitationsParams) ([]ListOrganizationInvitationsRow, error) {
-	rows, err := q.db.Query(ctx, listOrganizationInvitations, arg.OrganizationID, arg.PageLimit)
+	rows, err := q.db.Query(ctx, listOrganizationInvitations, arg.OrganizationID, arg.Now, arg.PageLimit)
 	if err != nil {
 		return nil, err
 	}
