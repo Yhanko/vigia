@@ -22,6 +22,6 @@
 
 - [x] **9. Retirar `DELETE` de `vigia_app` em `organizations`:** as organizações só passam a `status = 'deleted'` e a base de dados tem de o impor; adicionar teste de integração a provar que `DELETE` em `organizations` como `vigia_app` falha com SQLSTATE `42501`.
 - [x] **10. Teste cross-tenant de `UPDATE` e `DELETE`:** dentro de `WithTenantTx(orgA)`, `UPDATE` e `DELETE` dirigidos a linhas da Org B afectam `0` linhas e as linhas da Org B ficam intactas.
-- [ ] **11. `isValidUUID` duplicado:** eliminar a duplicação entre `internal/platform/crypto` e `internal/platform/database` numa só implementação partilhada.
+- [x] **11. `isValidUUID` duplicado:** eliminar a duplicação entre `internal/platform/crypto` e `internal/platform/database` numa só implementação partilhada (`internal/platform/ids`).
 - [ ] **12. Verificação de role no arranque da API (`staging`/`production`):** consultar `current_user`, `rolsuper` e `rolbypassrls` no arranque e recusar arrancar se `rolsuper` ou `rolbypassrls` for `true` (com teste).
 - [ ] **13. `EnsureRoles` (`log_min_duration_statement` e `log_min_error_statement`):** na mesma transacção do `ALTER ROLE`, executar também `SET LOCAL log_min_duration_statement = -1` e `SET LOCAL log_min_error_statement = 'panic'`.
