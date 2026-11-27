@@ -629,6 +629,51 @@ func (q *Queries) RemoveTeamMember(ctx context.Context, arg RemoveTeamMemberPara
 	return result.RowsAffected(), nil
 }
 
+const revokeAllOrgCredentials = `-- name: RevokeAllOrgCredentials :many
+UPDATE api_credentials
+SET revoked_at = $2::timestamptz
+WHERE organization_id = $1
+  AND revoked_at IS NULL
+RETURNING id, kind, prefix, public_key
+`
+
+type RevokeAllOrgCredentialsParams struct {
+	OrganizationID pgtype.UUID        `json:"organization_id"`
+	RevokedAt      pgtype.Timestamptz `json:"revoked_at"`
+}
+
+type RevokeAllOrgCredentialsRow struct {
+	ID        pgtype.UUID `json:"id"`
+	Kind      string      `json:"kind"`
+	Prefix    string      `json:"prefix"`
+	PublicKey *string     `json:"public_key"`
+}
+
+func (q *Queries) RevokeAllOrgCredentials(ctx context.Context, arg RevokeAllOrgCredentialsParams) ([]RevokeAllOrgCredentialsRow, error) {
+	rows, err := q.db.Query(ctx, revokeAllOrgCredentials, arg.OrganizationID, arg.RevokedAt)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []RevokeAllOrgCredentialsRow{}
+	for rows.Next() {
+		var i RevokeAllOrgCredentialsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Kind,
+			&i.Prefix,
+			&i.PublicKey,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const revokeAllPendingOrgInvitations = `-- name: RevokeAllPendingOrgInvitations :exec
 UPDATE invitations
 SET revoked_at = $2::timestamptz

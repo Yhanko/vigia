@@ -36,6 +36,11 @@ type Mailer interface {
 	Send(ctx context.Context, to, subject, textBody string) error
 }
 
+// CredentialCacheInvalidator evicts revoked API credentials from Redis immediately.
+type CredentialCacheInvalidator interface {
+	InvalidateCache(ctx context.Context, kind, prefix string, publicKey *string)
+}
+
 // Actor carries the authenticated caller's identity and session security context.
 type Actor struct {
 	UserID     string
@@ -105,6 +110,7 @@ type Service struct {
 	pool                     *pgxpool.Pool
 	q                        *sqlcgen.Queries
 	mailer                   Mailer
+	credInvalidator          CredentialCacheInvalidator
 	appURL                   string
 	mfaRequiredForPrivileged bool
 	clk                      clock.Clock
@@ -114,6 +120,7 @@ type Service struct {
 type ServiceConfig struct {
 	Pool                     *pgxpool.Pool
 	Mailer                   Mailer
+	CredentialInvalidator    CredentialCacheInvalidator
 	AppURL                   string
 	MFARequiredForPrivileged bool
 	Clock                    clock.Clock
@@ -132,6 +139,7 @@ func NewService(cfg ServiceConfig) (*Service, error) {
 		pool:                     cfg.Pool,
 		q:                        sqlcgen.New(cfg.Pool),
 		mailer:                   cfg.Mailer,
+		credInvalidator:          cfg.CredentialInvalidator,
 		appURL:                   strings.TrimRight(strings.TrimSpace(cfg.AppURL), "/"),
 		mfaRequiredForPrivileged: cfg.MFARequiredForPrivileged,
 		clk:                      clk,
@@ -328,6 +336,7 @@ func (s *Service) ScheduleDeletion(ctx context.Context, tenantID database.Tenant
 	orgUUID := mustScanUUID(tenantID.String())
 
 	var out Organization
+	var revokedCreds []sqlcgen.RevokeAllOrgCredentialsRow
 	err := database.WithTenantTx(ctx, s.pool, tenantID, func(tx pgx.Tx) error {
 		qtx := s.q.WithTx(tx)
 		cur, err := qtx.GetOrganizationByID(ctx, orgUUID)
@@ -357,10 +366,23 @@ func (s *Service) ScheduleDeletion(ctx context.Context, tenantID database.Tenant
 		}); err != nil {
 			return err
 		}
-		s.writeAuditTx(ctx, qtx, orgUUID, actor, "organization.deletion_scheduled", "organization", tenantID.String(), "success", []byte(`{}`))
+		revokedCreds, err = qtx.RevokeAllOrgCredentials(ctx, sqlcgen.RevokeAllOrgCredentialsParams{
+			OrganizationID: orgUUID,
+			RevokedAt:      pgtype.Timestamptz{Time: now, Valid: true},
+		})
+		if err != nil {
+			return err
+		}
+		changes := []byte(fmt.Sprintf(`{"revoked_credentials":%d}`, len(revokedCreds)))
+		s.writeAuditTx(ctx, qtx, orgUUID, actor, "organization.deletion_scheduled", "organization", tenantID.String(), "success", changes)
 		out = mapOrg(row)
 		return nil
 	})
+	if err == nil && s.credInvalidator != nil {
+		for _, c := range revokedCreds {
+			s.credInvalidator.InvalidateCache(ctx, c.Kind, c.Prefix, c.PublicKey)
+		}
+	}
 	return out, err
 }
 

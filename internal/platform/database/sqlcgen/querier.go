@@ -64,6 +64,7 @@ type Querier interface {
 	MarkUserEmailVerified(ctx context.Context, arg MarkUserEmailVerifiedParams) error
 	RemoveTeamMember(ctx context.Context, arg RemoveTeamMemberParams) (int64, error)
 	RevokeAPICredential(ctx context.Context, arg RevokeAPICredentialParams) (RevokeAPICredentialRow, error)
+	RevokeAllOrgCredentials(ctx context.Context, arg RevokeAllOrgCredentialsParams) ([]RevokeAllOrgCredentialsRow, error)
 	RevokeAllPendingOrgInvitations(ctx context.Context, arg RevokeAllPendingOrgInvitationsParams) error
 	RevokeAllProjectCredentials(ctx context.Context, arg RevokeAllProjectCredentialsParams) ([]RevokeAllProjectCredentialsRow, error)
 	RevokeAllUserSessions(ctx context.Context, arg RevokeAllUserSessionsParams) (int64, error)

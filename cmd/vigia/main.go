@@ -250,35 +250,10 @@ func runAPI() error {
 		}
 		apiAuthMW = identity.SessionAndCSRFMiddleware(idSvc, idSessions, allowedOrigins)
 
-		var orgMailer organizations.Mailer
-		if mailSender != nil {
-			orgMailer = mailSender
-		}
-		orgSvc, err := organizations.NewService(organizations.ServiceConfig{
-			Pool:                     pool,
-			Mailer:                   orgMailer,
-			AppURL:                   cfg.AppURL,
-			MFARequiredForPrivileged: cfg.MFARequiredForPrivileged,
-			Clock:                    clk,
-		})
-		if err != nil {
-			return err
-		}
-		orgHandler, err = organizations.NewHandler(orgSvc, cfg.TrustedProxies, logger)
-		if err != nil {
-			return err
-		}
-
-		audSvc, err := audit.NewService(pool)
-		if err != nil {
-			return err
-		}
-		audHandler, err = audit.NewHandler(audSvc, orgSvc, cfg.TrustedProxies, logger)
-		if err != nil {
-			return err
-		}
-
-		var credInvalidator projects.CredentialCacheInvalidator
+		var (
+			credInvalidator    projects.CredentialCacheInvalidator
+			orgCredInvalidator organizations.CredentialCacheInvalidator
+		)
 		if !cfg.APIKeyPepper.IsEmpty() {
 			var credCache credentials.Cache
 			if rdb != nil {
@@ -306,10 +281,40 @@ func runAPI() error {
 				credSvc.Close(flushCtx)
 			}()
 			credInvalidator = credSvc
+			orgCredInvalidator = credSvc
 			credHandler, err = credentials.NewHandler(credSvc, cfg.TrustedProxies, logger)
 			if err != nil {
 				return err
 			}
+		}
+
+		var orgMailer organizations.Mailer
+		if mailSender != nil {
+			orgMailer = mailSender
+		}
+		orgSvc, err := organizations.NewService(organizations.ServiceConfig{
+			Pool:                     pool,
+			Mailer:                   orgMailer,
+			CredentialInvalidator:    orgCredInvalidator,
+			AppURL:                   cfg.AppURL,
+			MFARequiredForPrivileged: cfg.MFARequiredForPrivileged,
+			Clock:                    clk,
+		})
+		if err != nil {
+			return err
+		}
+		orgHandler, err = organizations.NewHandler(orgSvc, cfg.TrustedProxies, logger)
+		if err != nil {
+			return err
+		}
+
+		audSvc, err := audit.NewService(pool)
+		if err != nil {
+			return err
+		}
+		audHandler, err = audit.NewHandler(audSvc, orgSvc, cfg.TrustedProxies, logger)
+		if err != nil {
+			return err
 		}
 
 		projSvc, err := projects.NewService(projects.ServiceConfig{

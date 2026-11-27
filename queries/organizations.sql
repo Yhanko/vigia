@@ -123,6 +123,13 @@ WHERE organization_id = $1
   AND accepted_at IS NULL
   AND revoked_at IS NULL;
 
+-- name: RevokeAllOrgCredentials :many
+UPDATE api_credentials
+SET revoked_at = sqlc.arg(revoked_at)::timestamptz
+WHERE organization_id = $1
+  AND revoked_at IS NULL
+RETURNING id, kind, prefix, public_key;
+
 -- name: GetUserSecurityStatus :one
 SELECT id, email, status, email_verified_at, mfa_enabled
 FROM users
