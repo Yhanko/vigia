@@ -8,6 +8,25 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+type ApiCredential struct {
+	ID             pgtype.UUID        `json:"id"`
+	OrganizationID pgtype.UUID        `json:"organization_id"`
+	ProjectID      pgtype.UUID        `json:"project_id"`
+	EnvironmentID  pgtype.UUID        `json:"environment_id"`
+	Kind           string             `json:"kind"`
+	Name           string             `json:"name"`
+	Prefix         string             `json:"prefix"`
+	SecretHash     []byte             `json:"secret_hash"`
+	PublicKey      *string            `json:"public_key"`
+	Scopes         []string           `json:"scopes"`
+	AllowedOrigins []string           `json:"allowed_origins"`
+	ExpiresAt      pgtype.Timestamptz `json:"expires_at"`
+	LastUsedAt     pgtype.Timestamptz `json:"last_used_at"`
+	RevokedAt      pgtype.Timestamptz `json:"revoked_at"`
+	CreatedBy      pgtype.UUID        `json:"created_by"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+}
+
 type AuditLog struct {
 	ID             pgtype.UUID        `json:"id"`
 	OrganizationID pgtype.UUID        `json:"organization_id"`
@@ -22,6 +41,16 @@ type AuditLog struct {
 	RequestID      string             `json:"request_id"`
 	Changes        []byte             `json:"changes"`
 	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+}
+
+type Environment struct {
+	ID             pgtype.UUID        `json:"id"`
+	OrganizationID pgtype.UUID        `json:"organization_id"`
+	ProjectID      pgtype.UUID        `json:"project_id"`
+	Name           string             `json:"name"`
+	IsProtected    bool               `json:"is_protected"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
 }
 
 type Invitation struct {
@@ -55,6 +84,19 @@ type Organization struct {
 	PurgeAfter pgtype.Timestamptz `json:"purge_after"`
 	CreatedAt  pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt  pgtype.Timestamptz `json:"updated_at"`
+}
+
+type Project struct {
+	ID             pgtype.UUID        `json:"id"`
+	OrganizationID pgtype.UUID        `json:"organization_id"`
+	PublicID       int64              `json:"public_id"`
+	Name           string             `json:"name"`
+	Slug           string             `json:"slug"`
+	Platform       string             `json:"platform"`
+	Status         string             `json:"status"`
+	DeletedAt      pgtype.Timestamptz `json:"deleted_at"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
 }
 
 type Session struct {
