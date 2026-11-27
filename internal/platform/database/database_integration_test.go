@@ -211,6 +211,16 @@ func TestDatabaseIntegration(t *testing.T) {
 			t.Fatalf("unexpected runtime role: user=%q rolsuper=%v rolbypassrls=%v", curUser, rolSuper, rolBypassRLS)
 		}
 
+		// VerifyNonPrivilegedRole must reject the superuser adminPool and accept vigia_app (CTO #12).
+		if err := VerifyNonPrivilegedRole(ctx, adminPool); !errors.Is(err, ErrPrivilegedRole) {
+			t.Fatalf("VerifyNonPrivilegedRole(adminPool) = %v, want ErrPrivilegedRole", err)
+		} else if !strings.Contains(err.Error(), "rolsuper=true") {
+			t.Fatalf("VerifyNonPrivilegedRole(adminPool) error %q should identify rolsuper=true", err.Error())
+		}
+		if err := VerifyNonPrivilegedRole(ctx, appPool); err != nil {
+			t.Fatalf("VerifyNonPrivilegedRole(appPool) unexpected error: %v", err)
+		}
+
 		// vigia_app must NOT be able to escalate to vigia or vigia_definer, nor read pg_authid.
 		for _, forbidden := range []string{
 			"SET ROLE vigia",

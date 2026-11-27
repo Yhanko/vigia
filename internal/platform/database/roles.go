@@ -12,7 +12,41 @@ import (
 	"io"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+// ErrPrivilegedRole is returned by VerifyNonPrivilegedRole when the runtime
+// PostgreSQL role has SUPERUSER or BYPASSRLS privileges (ADR-008).
+var ErrPrivilegedRole = errors.New("database: runtime role is privileged")
+
+// VerifyNonPrivilegedRole queries PostgreSQL for the active connection's role
+// attributes and returns an error wrapping ErrPrivilegedRole if rolsuper or
+// rolbypassrls is true. The error identifies the role name and offending
+// attribute(s) and never includes connection DSN details.
+func VerifyNonPrivilegedRole(ctx context.Context, pool *pgxpool.Pool) error {
+	var (
+		roleName     string
+		rolSuper     bool
+		rolBypassRLS bool
+	)
+	err := pool.QueryRow(ctx,
+		"SELECT current_user, rolsuper, rolbypassrls FROM pg_roles WHERE rolname = current_user",
+	).Scan(&roleName, &rolSuper, &rolBypassRLS)
+	if err != nil {
+		return fmt.Errorf("verify runtime role: %w", err)
+	}
+
+	switch {
+	case rolSuper && rolBypassRLS:
+		return fmt.Errorf("%w: role %q has rolsuper=true and rolbypassrls=true", ErrPrivilegedRole, roleName)
+	case rolSuper:
+		return fmt.Errorf("%w: role %q has rolsuper=true", ErrPrivilegedRole, roleName)
+	case rolBypassRLS:
+		return fmt.Errorf("%w: role %q has rolbypassrls=true", ErrPrivilegedRole, roleName)
+	default:
+		return nil
+	}
+}
 
 const (
 	scramSaltBytes  = 16

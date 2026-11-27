@@ -119,6 +119,10 @@ func runAPI() error {
 		defer pool.Close()
 		logger.Info("connected to PostgreSQL")
 
+		if err := enforceRuntimeDBRole(cfg.AppEnv, database.VerifyNonPrivilegedRole(ctx, pool), logger); err != nil {
+			return err
+		}
+
 		checks = append(checks, httpserver.ReadinessCheck{
 			Name:  "postgres",
 			Check: func(c context.Context) error { return pool.Ping(c) },
@@ -189,6 +193,20 @@ func runAPI() error {
 		adminSrv.Shutdown(shutdownCtx),
 	)
 	return errors.Join(runErr, shutdownErr)
+}
+
+// enforceRuntimeDBRole applies the ADR-008 runtime role policy by environment:
+// staging and production refuse to start with a privileged role (rolsuper or
+// rolbypassrls), while development logs a warning and continues.
+func enforceRuntimeDBRole(appEnv string, verifyErr error, logger *slog.Logger) error {
+	if verifyErr == nil {
+		return nil
+	}
+	if errors.Is(verifyErr, database.ErrPrivilegedRole) && appEnv == "development" {
+		logger.Warn("database runtime role is privileged; RLS may be bypassed in development", "error", verifyErr)
+		return nil
+	}
+	return verifyErr
 }
 
 func runMigrate(action string) error {
