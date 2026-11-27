@@ -37,6 +37,8 @@ type Options struct {
 	HSTS bool
 	// APIRateLimit optionally wraps the /api/v1 route group with base per-IP rate limiting.
 	APIRateLimit func(http.Handler) http.Handler
+	// APIAuth optionally wraps the /api/v1 route group with session and CSRF middleware.
+	APIAuth func(http.Handler) http.Handler
 	// APIServer provides the composed OpenAPI ServerInterface mounted under /api/v1
 	// via api.HandlerWithOptions (CTO #6, #18). Domain handlers live in internal/modules/*.
 	APIServer api.ServerInterface
@@ -78,6 +80,9 @@ func NewHandler(opts Options) http.Handler {
 		r.Route("/api/v1", func(v1 chi.Router) {
 			if opts.APIRateLimit != nil {
 				v1.Use(opts.APIRateLimit)
+			}
+			if opts.APIAuth != nil {
+				v1.Use(opts.APIAuth)
 			}
 			api.HandlerWithOptions(opts.APIServer, api.ChiServerOptions{
 				BaseRouter: v1,

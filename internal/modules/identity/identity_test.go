@@ -456,7 +456,37 @@ func (s *spyHasher) NeedsRehash(encodedHash string) bool {
 }
 
 type testAPIServer struct {
-	*identity.Handler
+	api.Unimplemented
+	h *identity.Handler
+}
+
+func (s testAPIServer) AuthRegister(w http.ResponseWriter, r *http.Request) {
+	s.h.AuthRegister(w, r)
+}
+func (s testAPIServer) AuthLogin(w http.ResponseWriter, r *http.Request) { s.h.AuthLogin(w, r) }
+func (s testAPIServer) AuthLogout(w http.ResponseWriter, r *http.Request, p api.AuthLogoutParams) {
+	s.h.AuthLogout(w, r, p)
+}
+func (s testAPIServer) AuthRefresh(w http.ResponseWriter, r *http.Request, p api.AuthRefreshParams) {
+	s.h.AuthRefresh(w, r, p)
+}
+func (s testAPIServer) AuthVerifyEmail(w http.ResponseWriter, r *http.Request) {
+	s.h.AuthVerifyEmail(w, r)
+}
+func (s testAPIServer) AuthPasswordForgot(w http.ResponseWriter, r *http.Request) {
+	s.h.AuthPasswordForgot(w, r)
+}
+func (s testAPIServer) AuthPasswordReset(w http.ResponseWriter, r *http.Request) {
+	s.h.AuthPasswordReset(w, r)
+}
+func (s testAPIServer) AuthMFASetup(w http.ResponseWriter, r *http.Request, p api.AuthMFASetupParams) {
+	s.h.AuthMFASetup(w, r, p)
+}
+func (s testAPIServer) AuthMFAVerify(w http.ResponseWriter, r *http.Request, p api.AuthMFAVerifyParams) {
+	s.h.AuthMFAVerify(w, r, p)
+}
+func (s testAPIServer) AuthReauth(w http.ResponseWriter, r *http.Request, p api.AuthReauthParams) {
+	s.h.AuthReauth(w, r, p)
 }
 
 func (testAPIServer) GetStatus(w http.ResponseWriter, _ *http.Request) {
@@ -565,7 +595,8 @@ func newHarness(t *testing.T, appEnv string) *harness {
 		Commit:      "abc",
 		Logger:      logger,
 		CORSOrigins: []string{origin},
-		APIServer:   testAPIServer{Handler: h},
+		APIAuth:     identity.SessionAndCSRFMiddleware(svc, codec, []string{origin}),
+		APIServer:   testAPIServer{h: h},
 	})
 
 	return &harness{

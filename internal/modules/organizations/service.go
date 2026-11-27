@@ -800,6 +800,97 @@ func (s *Service) ListTeams(ctx context.Context, tenantID database.TenantID, act
 	return out, err
 }
 
+// ListInvitations returns pending invitations for the organization.
+func (s *Service) ListInvitations(ctx context.Context, tenantID database.TenantID, actor Actor) ([]Invitation, error) {
+	if _, err := s.Authorize(ctx, tenantID, actor, PermMemberRead); err != nil {
+		return nil, err
+	}
+	orgUUID := mustScanUUID(tenantID.String())
+	var out []Invitation
+	err := database.WithTenantTx(ctx, s.pool, tenantID, func(tx pgx.Tx) error {
+		rows, err := tx.Query(ctx, `
+			SELECT id, organization_id, email, role, invited_by, expires_at, created_at
+			FROM invitations
+			WHERE organization_id = $1
+			  AND accepted_at IS NULL
+			  AND revoked_at IS NULL
+			  AND expires_at > now()
+			ORDER BY created_at DESC, id DESC
+		`, orgUUID)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var id, oid, invBy pgtype.UUID
+			var email, role string
+			var expAt, crAt pgtype.Timestamptz
+			if err := rows.Scan(&id, &oid, &email, &role, &invBy, &expAt, &crAt); err != nil {
+				return err
+			}
+			out = append(out, Invitation{
+				ID:             id.String(),
+				OrganizationID: oid.String(),
+				Email:          email,
+				Role:           role,
+				InvitedBy:      invBy.String(),
+				ExpiresAt:      expAt.Time.UTC(),
+				CreatedAt:      crAt.Time.UTC(),
+			})
+		}
+		return rows.Err()
+	})
+	return out, err
+}
+
+// RevokeInvitation revokes a pending invitation inside WithTenantTx.
+func (s *Service) RevokeInvitation(ctx context.Context, tenantID database.TenantID, actor Actor, invitationID string) error {
+	if _, err := s.Authorize(ctx, tenantID, actor, PermMemberInvite); err != nil {
+		return err
+	}
+	orgUUID := mustScanUUID(tenantID.String())
+	invUUID := mustScanUUID(invitationID)
+	now := s.clk.Now().UTC()
+	return database.WithTenantTx(ctx, s.pool, tenantID, func(tx pgx.Tx) error {
+		tag, err := tx.Exec(ctx, `
+			UPDATE invitations
+			SET revoked_at = $3::timestamptz
+			WHERE organization_id = $1 AND id = $2 AND accepted_at IS NULL AND revoked_at IS NULL
+		`, orgUUID, invUUID, now)
+		if err != nil {
+			return err
+		}
+		if tag.RowsAffected() == 0 {
+			return ErrNotFound
+		}
+		s.writeAuditTx(ctx, s.q.WithTx(tx), orgUUID, actor, "invitation.revoked", "invitation", invitationID, "success", nil)
+		return nil
+	})
+}
+
+// DeleteTeam deletes a team in the organization inside WithTenantTx.
+func (s *Service) DeleteTeam(ctx context.Context, tenantID database.TenantID, actor Actor, teamID string) error {
+	if _, err := s.Authorize(ctx, tenantID, actor, PermTeamManage); err != nil {
+		return err
+	}
+	orgUUID := mustScanUUID(tenantID.String())
+	tUUID := mustScanUUID(teamID)
+	return database.WithTenantTx(ctx, s.pool, tenantID, func(tx pgx.Tx) error {
+		tag, err := tx.Exec(ctx, `
+			DELETE FROM teams
+			WHERE organization_id = $1 AND id = $2
+		`, orgUUID, tUUID)
+		if err != nil {
+			return err
+		}
+		if tag.RowsAffected() == 0 {
+			return ErrNotFound
+		}
+		s.writeAuditTx(ctx, s.q.WithTx(tx), orgUUID, actor, "team.deleted", "team", teamID, "success", nil)
+		return nil
+	})
+}
+
 func (s *Service) requireRecentAuth(actor Actor) error {
 	if s.clk.Now().UTC().Sub(actor.LastAuthAt) > ReauthWindow {
 		return ErrReauthRequired

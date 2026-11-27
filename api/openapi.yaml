@@ -502,6 +502,845 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
+  /organizations:
+    get:
+      operationId: listOrganizations
+      summary: List organizations the authenticated user belongs to
+      security:
+        - sessionCookie: []
+      tags:
+        - organizations
+      responses:
+        "200":
+          description: Organizations list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OrganizationSummaryListResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        default:
+          $ref: "#/components/responses/DefaultError"
+    post:
+      operationId: createOrganization
+      summary: Create a new organization
+      security:
+        - sessionCookie: []
+      tags:
+        - organizations
+      parameters:
+        - $ref: "#/components/parameters/CSRFTokenHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateOrganizationRequest"
+      responses:
+        "201":
+          description: Organization created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OrganizationResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        default:
+          $ref: "#/components/responses/DefaultError"
+
+  /organizations/{orgId}:
+    get:
+      operationId: getOrganization
+      summary: Get organization details
+      security:
+        - sessionCookie: []
+      tags:
+        - organizations
+      parameters:
+        - $ref: "#/components/parameters/OrgIDPath"
+      responses:
+        "200":
+          description: Organization details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OrganizationResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        default:
+          $ref: "#/components/responses/DefaultError"
+    patch:
+      operationId: updateOrganization
+      summary: Update organization name
+      security:
+        - sessionCookie: []
+      tags:
+        - organizations
+      parameters:
+        - $ref: "#/components/parameters/OrgIDPath"
+        - $ref: "#/components/parameters/CSRFTokenHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateOrganizationRequest"
+      responses:
+        "200":
+          description: Organization updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OrganizationResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        default:
+          $ref: "#/components/responses/DefaultError"
+    delete:
+      operationId: deleteOrganization
+      summary: Soft-delete an organization (requires recent auth and slug confirmation)
+      security:
+        - sessionCookie: []
+      tags:
+        - organizations
+      parameters:
+        - $ref: "#/components/parameters/OrgIDPath"
+        - $ref: "#/components/parameters/CSRFTokenHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ConfirmSlugRequest"
+      responses:
+        "204":
+          description: Organization marked as deleting
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        default:
+          $ref: "#/components/responses/DefaultError"
+
+  /organizations/{orgId}/transfer-ownership:
+    post:
+      operationId: transferOrganizationOwnership
+      summary: Transfer organization ownership to another active member
+      security:
+        - sessionCookie: []
+      tags:
+        - organizations
+      parameters:
+        - $ref: "#/components/parameters/OrgIDPath"
+        - $ref: "#/components/parameters/CSRFTokenHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TransferOwnershipRequest"
+      responses:
+        "204":
+          description: Ownership transferred
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        default:
+          $ref: "#/components/responses/DefaultError"
+
+  /organizations/{orgId}/members:
+    get:
+      operationId: listOrganizationMembers
+      summary: List active organization members
+      security:
+        - sessionCookie: []
+      tags:
+        - organizations
+      parameters:
+        - $ref: "#/components/parameters/OrgIDPath"
+      responses:
+        "200":
+          description: Organization members
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MemberListResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        default:
+          $ref: "#/components/responses/DefaultError"
+
+  /organizations/{orgId}/members/{memberId}:
+    patch:
+      operationId: updateOrganizationMember
+      summary: Update a member's role
+      security:
+        - sessionCookie: []
+      tags:
+        - organizations
+      parameters:
+        - $ref: "#/components/parameters/OrgIDPath"
+        - $ref: "#/components/parameters/MemberIDPath"
+        - $ref: "#/components/parameters/CSRFTokenHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateMemberRoleRequest"
+      responses:
+        "204":
+          description: Member role updated
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        default:
+          $ref: "#/components/responses/DefaultError"
+    delete:
+      operationId: removeOrganizationMember
+      summary: Remove a member from the organization
+      security:
+        - sessionCookie: []
+      tags:
+        - organizations
+      parameters:
+        - $ref: "#/components/parameters/OrgIDPath"
+        - $ref: "#/components/parameters/MemberIDPath"
+        - $ref: "#/components/parameters/CSRFTokenHeader"
+      responses:
+        "204":
+          description: Member removed
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        default:
+          $ref: "#/components/responses/DefaultError"
+
+  /organizations/{orgId}/invitations:
+    get:
+      operationId: listOrganizationInvitations
+      summary: List pending organization invitations
+      security:
+        - sessionCookie: []
+      tags:
+        - organizations
+      parameters:
+        - $ref: "#/components/parameters/OrgIDPath"
+      responses:
+        "200":
+          description: Pending invitations
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InvitationListResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        default:
+          $ref: "#/components/responses/DefaultError"
+    post:
+      operationId: createOrganizationInvitation
+      summary: Invite a user to the organization by email
+      security:
+        - sessionCookie: []
+      tags:
+        - organizations
+      parameters:
+        - $ref: "#/components/parameters/OrgIDPath"
+        - $ref: "#/components/parameters/CSRFTokenHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateInvitationRequest"
+      responses:
+        "201":
+          description: Invitation created and dispatched
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InvitationResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        default:
+          $ref: "#/components/responses/DefaultError"
+
+  /organizations/{orgId}/invitations/{invitationId}:
+    delete:
+      operationId: revokeOrganizationInvitation
+      summary: Revoke a pending organization invitation
+      security:
+        - sessionCookie: []
+      tags:
+        - organizations
+      parameters:
+        - $ref: "#/components/parameters/OrgIDPath"
+        - $ref: "#/components/parameters/InvitationIDPath"
+        - $ref: "#/components/parameters/CSRFTokenHeader"
+      responses:
+        "204":
+          description: Invitation revoked
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        default:
+          $ref: "#/components/responses/DefaultError"
+
+  /invitations/accept:
+    post:
+      operationId: acceptOrganizationInvitation
+      summary: Accept a pending organization invitation using its single-use token
+      security:
+        - sessionCookie: []
+      tags:
+        - organizations
+      parameters:
+        - $ref: "#/components/parameters/CSRFTokenHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AcceptInvitationRequest"
+      responses:
+        "200":
+          description: Invitation accepted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AcceptInvitationResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        default:
+          $ref: "#/components/responses/DefaultError"
+
+  /organizations/{orgId}/teams:
+    get:
+      operationId: listOrganizationTeams
+      summary: List teams in the organization
+      security:
+        - sessionCookie: []
+      tags:
+        - organizations
+      parameters:
+        - $ref: "#/components/parameters/OrgIDPath"
+      responses:
+        "200":
+          description: Teams list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TeamListResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        default:
+          $ref: "#/components/responses/DefaultError"
+    post:
+      operationId: createOrganizationTeam
+      summary: Create a team in the organization
+      security:
+        - sessionCookie: []
+      tags:
+        - organizations
+      parameters:
+        - $ref: "#/components/parameters/OrgIDPath"
+        - $ref: "#/components/parameters/CSRFTokenHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateTeamRequest"
+      responses:
+        "201":
+          description: Team created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TeamResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        default:
+          $ref: "#/components/responses/DefaultError"
+
+  /organizations/{orgId}/teams/{teamId}:
+    delete:
+      operationId: deleteOrganizationTeam
+      summary: Delete a team in the organization
+      security:
+        - sessionCookie: []
+      tags:
+        - organizations
+      parameters:
+        - $ref: "#/components/parameters/OrgIDPath"
+        - $ref: "#/components/parameters/TeamIDPath"
+        - $ref: "#/components/parameters/CSRFTokenHeader"
+      responses:
+        "204":
+          description: Team deleted
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        default:
+          $ref: "#/components/responses/DefaultError"
+
+  /organizations/{orgId}/audit-logs:
+    get:
+      operationId: listOrganizationAuditLogs
+      summary: List tenant-scoped append-only audit logs with cursor pagination
+      security:
+        - sessionCookie: []
+      tags:
+        - audit
+      parameters:
+        - $ref: "#/components/parameters/OrgIDPath"
+        - name: limit
+          in: query
+          required: false
+          description: Maximum number of records to return (default 50, max 100).
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+        - name: cursor
+          in: query
+          required: false
+          description: Opaque keyset pagination cursor from a previous response.
+          schema:
+            type: string
+            maxLength: 512
+      responses:
+        "200":
+          description: Audit logs page
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuditLogPageResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        default:
+          $ref: "#/components/responses/DefaultError"
+
+  /organizations/{orgId}/projects:
+    get:
+      operationId: listOrganizationProjects
+      summary: List active projects in the organization
+      security:
+        - sessionCookie: []
+      tags:
+        - projects
+      parameters:
+        - $ref: "#/components/parameters/OrgIDPath"
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+      responses:
+        "200":
+          description: Projects list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProjectListResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        default:
+          $ref: "#/components/responses/DefaultError"
+    post:
+      operationId: createOrganizationProject
+      summary: Create a new project in the organization
+      security:
+        - sessionCookie: []
+      tags:
+        - projects
+      parameters:
+        - $ref: "#/components/parameters/OrgIDPath"
+        - $ref: "#/components/parameters/CSRFTokenHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateProjectRequest"
+      responses:
+        "201":
+          description: Project created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProjectResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        default:
+          $ref: "#/components/responses/DefaultError"
+
+  /organizations/{orgId}/projects/{projectId}:
+    get:
+      operationId: getOrganizationProject
+      summary: Get project details
+      security:
+        - sessionCookie: []
+      tags:
+        - projects
+      parameters:
+        - $ref: "#/components/parameters/OrgIDPath"
+        - $ref: "#/components/parameters/ProjectIDPath"
+      responses:
+        "200":
+          description: Project details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProjectResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        default:
+          $ref: "#/components/responses/DefaultError"
+    patch:
+      operationId: updateOrganizationProject
+      summary: Update project name and platform
+      security:
+        - sessionCookie: []
+      tags:
+        - projects
+      parameters:
+        - $ref: "#/components/parameters/OrgIDPath"
+        - $ref: "#/components/parameters/ProjectIDPath"
+        - $ref: "#/components/parameters/CSRFTokenHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateProjectRequest"
+      responses:
+        "200":
+          description: Project updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProjectResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        default:
+          $ref: "#/components/responses/DefaultError"
+    delete:
+      operationId: deleteOrganizationProject
+      summary: Soft-delete a project and immediately revoke all its API credentials
+      security:
+        - sessionCookie: []
+      tags:
+        - projects
+      parameters:
+        - $ref: "#/components/parameters/OrgIDPath"
+        - $ref: "#/components/parameters/ProjectIDPath"
+        - $ref: "#/components/parameters/CSRFTokenHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ConfirmSlugRequest"
+      responses:
+        "204":
+          description: Project marked as deleting
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        default:
+          $ref: "#/components/responses/DefaultError"
+
+  /organizations/{orgId}/projects/{projectId}/environments:
+    get:
+      operationId: listProjectEnvironments
+      summary: List environments for a project
+      security:
+        - sessionCookie: []
+      tags:
+        - projects
+      parameters:
+        - $ref: "#/components/parameters/OrgIDPath"
+        - $ref: "#/components/parameters/ProjectIDPath"
+      responses:
+        "200":
+          description: Environments list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnvironmentListResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        default:
+          $ref: "#/components/responses/DefaultError"
+    post:
+      operationId: createProjectEnvironment
+      summary: Create an environment for a project
+      security:
+        - sessionCookie: []
+      tags:
+        - projects
+      parameters:
+        - $ref: "#/components/parameters/OrgIDPath"
+        - $ref: "#/components/parameters/ProjectIDPath"
+        - $ref: "#/components/parameters/CSRFTokenHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateEnvironmentRequest"
+      responses:
+        "201":
+          description: Environment created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnvironmentResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        default:
+          $ref: "#/components/responses/DefaultError"
+
+  /organizations/{orgId}/environments/{environmentId}:
+    delete:
+      operationId: deleteProjectEnvironment
+      summary: Delete a non-protected environment
+      security:
+        - sessionCookie: []
+      tags:
+        - projects
+      parameters:
+        - $ref: "#/components/parameters/OrgIDPath"
+        - $ref: "#/components/parameters/EnvironmentIDPath"
+        - $ref: "#/components/parameters/CSRFTokenHeader"
+      responses:
+        "204":
+          description: Environment deleted
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        default:
+          $ref: "#/components/responses/DefaultError"
+
+  /organizations/{orgId}/projects/{projectId}/credentials:
+    get:
+      operationId: listProjectCredentials
+      summary: List API credentials metadata for a project (never returns secrets)
+      security:
+        - sessionCookie: []
+      tags:
+        - credentials
+      parameters:
+        - $ref: "#/components/parameters/OrgIDPath"
+        - $ref: "#/components/parameters/ProjectIDPath"
+      responses:
+        "200":
+          description: API credentials list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CredentialListResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        default:
+          $ref: "#/components/responses/DefaultError"
+    post:
+      operationId: createProjectCredential
+      summary: Create a new API credential (secret shown once)
+      security:
+        - sessionCookie: []
+      tags:
+        - credentials
+      parameters:
+        - $ref: "#/components/parameters/OrgIDPath"
+        - $ref: "#/components/parameters/ProjectIDPath"
+        - $ref: "#/components/parameters/CSRFTokenHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateCredentialRequest"
+      responses:
+        "201":
+          description: API credential created (secret returned once)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreatedCredentialResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        default:
+          $ref: "#/components/responses/DefaultError"
+
+  /organizations/{orgId}/credentials/{credentialId}/revoke:
+    post:
+      operationId: revokeOrganizationCredential
+      summary: Immediately revoke an API credential and evict its cache entry
+      security:
+        - sessionCookie: []
+      tags:
+        - credentials
+      parameters:
+        - $ref: "#/components/parameters/OrgIDPath"
+        - $ref: "#/components/parameters/CredentialIDPath"
+        - $ref: "#/components/parameters/CSRFTokenHeader"
+      responses:
+        "204":
+          description: Credential revoked
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        default:
+          $ref: "#/components/responses/DefaultError"
+
+  /organizations/{orgId}/credentials/{credentialId}/rotate:
+    post:
+      operationId: rotateOrganizationCredential
+      summary: Rotate an API credential with optional overlap window (new secret shown once)
+      security:
+        - sessionCookie: []
+      tags:
+        - credentials
+      parameters:
+        - $ref: "#/components/parameters/OrgIDPath"
+        - $ref: "#/components/parameters/CredentialIDPath"
+        - $ref: "#/components/parameters/CSRFTokenHeader"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RotateCredentialRequest"
+      responses:
+        "201":
+          description: Replacement API credential created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreatedCredentialResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        default:
+          $ref: "#/components/responses/DefaultError"
+
 components:
   parameters:
     CSRFTokenHeader:
@@ -512,8 +1351,107 @@ components:
       schema:
         type: string
         minLength: 1
+    OrgIDPath:
+      name: orgId
+      in: path
+      required: true
+      description: Organization UUID.
+      schema:
+        type: string
+        format: uuid
+        x-go-type: string
+    MemberIDPath:
+      name: memberId
+      in: path
+      required: true
+      description: Membership UUID.
+      schema:
+        type: string
+        format: uuid
+        x-go-type: string
+    InvitationIDPath:
+      name: invitationId
+      in: path
+      required: true
+      description: Invitation UUID.
+      schema:
+        type: string
+        format: uuid
+        x-go-type: string
+    TeamIDPath:
+      name: teamId
+      in: path
+      required: true
+      description: Team UUID.
+      schema:
+        type: string
+        format: uuid
+        x-go-type: string
+    ProjectIDPath:
+      name: projectId
+      in: path
+      required: true
+      description: Project UUID.
+      schema:
+        type: string
+        format: uuid
+        x-go-type: string
+    EnvironmentIDPath:
+      name: environmentId
+      in: path
+      required: true
+      description: Environment UUID.
+      schema:
+        type: string
+        format: uuid
+        x-go-type: string
+    CredentialIDPath:
+      name: credentialId
+      in: path
+      required: true
+      description: API credential UUID.
+      schema:
+        type: string
+        format: uuid
+        x-go-type: string
 
   responses:
+    BadRequest:
+      description: Invalid JSON or validation error
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    Unauthorized:
+      description: Authentication or recent reauthentication required
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    Forbidden:
+      description: Forbidden, CSRF invalid, MFA setup required, or protected resource
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    Conflict:
+      description: Resource conflict (e.g. duplicate slug or member)
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    DefaultError:
+      description: Error response
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
     RateLimited:
       description: Rate limit exceeded (`RATE_LIMIT_EXCEEDED`)
       headers:
@@ -831,3 +1769,584 @@ components:
           type: string
           minLength: 6
           maxLength: 12
+
+    CreateOrganizationRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - name
+        - slug
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+        slug:
+          type: string
+          minLength: 3
+          maxLength: 63
+
+    UpdateOrganizationRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - name
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+
+    ConfirmSlugRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - confirmSlug
+      properties:
+        confirmSlug:
+          type: string
+          minLength: 1
+          maxLength: 63
+
+    TransferOwnershipRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - newOwnerUserId
+        - confirmSlug
+      properties:
+        newOwnerUserId:
+          type: string
+          format: uuid
+          x-go-type: string
+        confirmSlug:
+          type: string
+          minLength: 1
+          maxLength: 63
+
+    OrganizationResponse:
+      type: object
+      required:
+        - id
+        - name
+        - slug
+        - status
+        - createdAt
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        slug:
+          type: string
+        status:
+          type: string
+        purgeAfter:
+          type: string
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+
+    OrganizationSummary:
+      type: object
+      required:
+        - organizationId
+        - name
+        - slug
+        - orgStatus
+        - role
+        - membershipStatus
+      properties:
+        organizationId:
+          type: string
+        name:
+          type: string
+        slug:
+          type: string
+        orgStatus:
+          type: string
+        role:
+          type: string
+        membershipStatus:
+          type: string
+
+    OrganizationSummaryListResponse:
+      type: object
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/OrganizationSummary"
+
+    MemberResponse:
+      type: object
+      required:
+        - id
+        - organizationId
+        - userId
+        - email
+        - name
+        - role
+        - status
+        - createdAt
+      properties:
+        id:
+          type: string
+        organizationId:
+          type: string
+        userId:
+          type: string
+        email:
+          type: string
+        name:
+          type: string
+        role:
+          type: string
+        status:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+
+    MemberListResponse:
+      type: object
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/MemberResponse"
+
+    UpdateMemberRoleRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - role
+      properties:
+        role:
+          type: string
+          enum: [admin, member, viewer]
+
+    CreateInvitationRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - email
+        - role
+      properties:
+        email:
+          type: string
+          format: email
+          x-go-type: string
+          maxLength: 254
+        role:
+          type: string
+          enum: [admin, member, viewer]
+
+    InvitationResponse:
+      type: object
+      required:
+        - id
+        - organizationId
+        - email
+        - role
+        - invitedBy
+        - expiresAt
+        - createdAt
+      properties:
+        id:
+          type: string
+        organizationId:
+          type: string
+        email:
+          type: string
+        role:
+          type: string
+        invitedBy:
+          type: string
+        expiresAt:
+          type: string
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+
+    InvitationListResponse:
+      type: object
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/InvitationResponse"
+
+    AcceptInvitationRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - token
+      properties:
+        token:
+          type: string
+          minLength: 1
+          maxLength: 256
+
+    AcceptInvitationResponse:
+      type: object
+      required:
+        - organizationId
+      properties:
+        organizationId:
+          type: string
+
+    CreateTeamRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - name
+        - slug
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+        slug:
+          type: string
+          minLength: 3
+          maxLength: 63
+
+    TeamResponse:
+      type: object
+      required:
+        - id
+        - organizationId
+        - name
+        - slug
+        - createdAt
+      properties:
+        id:
+          type: string
+        organizationId:
+          type: string
+        name:
+          type: string
+        slug:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+
+    TeamListResponse:
+      type: object
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/TeamResponse"
+
+    AuditLogEntryResponse:
+      type: object
+      required:
+        - id
+        - organizationId
+        - actorType
+        - action
+        - resourceType
+        - result
+        - requestId
+        - createdAt
+      properties:
+        id:
+          type: string
+        organizationId:
+          type: string
+        actorType:
+          type: string
+        actorId:
+          type: string
+        action:
+          type: string
+        resourceType:
+          type: string
+        resourceId:
+          type: string
+        result:
+          type: string
+        ipPrefix:
+          type: string
+        userAgent:
+          type: string
+        requestId:
+          type: string
+        changes:
+          type: object
+          additionalProperties: true
+        createdAt:
+          type: string
+          format: date-time
+
+    AuditLogPageResponse:
+      type: object
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/AuditLogEntryResponse"
+        nextCursor:
+          type: string
+
+    CreateProjectRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - name
+        - slug
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+        slug:
+          type: string
+          minLength: 3
+          maxLength: 63
+        platform:
+          type: string
+          maxLength: 40
+
+    UpdateProjectRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - name
+        - platform
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+        platform:
+          type: string
+          minLength: 1
+          maxLength: 40
+
+    ProjectResponse:
+      type: object
+      required:
+        - id
+        - organizationId
+        - publicId
+        - name
+        - slug
+        - platform
+        - status
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: string
+        organizationId:
+          type: string
+        publicId:
+          type: integer
+          format: int64
+        name:
+          type: string
+        slug:
+          type: string
+        platform:
+          type: string
+        status:
+          type: string
+        deletedAt:
+          type: string
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    ProjectListResponse:
+      type: object
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProjectResponse"
+
+    CreateEnvironmentRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - name
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 63
+        isProtected:
+          type: boolean
+
+    EnvironmentResponse:
+      type: object
+      required:
+        - id
+        - organizationId
+        - projectId
+        - name
+        - isProtected
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: string
+        organizationId:
+          type: string
+        projectId:
+          type: string
+        name:
+          type: string
+        isProtected:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    EnvironmentListResponse:
+      type: object
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/EnvironmentResponse"
+
+    CreateCredentialRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - kind
+        - name
+      properties:
+        kind:
+          type: string
+          enum: [ingest, client, dsn]
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+        environmentId:
+          type: string
+          format: uuid
+          x-go-type: string
+        scopes:
+          type: array
+          items:
+            type: string
+        allowedOrigins:
+          type: array
+          items:
+            type: string
+        expiresAt:
+          type: string
+          format: date-time
+
+    RotateCredentialRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        overlapSeconds:
+          type: integer
+          minimum: 0
+          maximum: 604800
+
+    CredentialResponse:
+      type: object
+      required:
+        - id
+        - organizationId
+        - projectId
+        - kind
+        - name
+        - prefix
+        - createdBy
+        - createdAt
+      properties:
+        id:
+          type: string
+        organizationId:
+          type: string
+        projectId:
+          type: string
+        environmentId:
+          type: string
+        kind:
+          type: string
+        name:
+          type: string
+        prefix:
+          type: string
+        publicKey:
+          type: string
+        dsn:
+          type: string
+        scopes:
+          type: array
+          items:
+            type: string
+        allowedOrigins:
+          type: array
+          items:
+            type: string
+        expiresAt:
+          type: string
+          format: date-time
+        lastUsedAt:
+          type: string
+          format: date-time
+        revokedAt:
+          type: string
+          format: date-time
+        createdBy:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+
+    CreatedCredentialResponse:
+      type: object
+      required:
+        - credential
+      properties:
+        credential:
+          $ref: "#/components/schemas/CredentialResponse"
+        secret:
+          type: string
+          description: Raw secret key returned ONCE at creation or rotation (omitted for DSN keys).
+
+    CredentialListResponse:
+      type: object
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/CredentialResponse"

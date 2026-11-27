@@ -41,6 +41,50 @@ func SessionMiddleware(svc *Service, sessions *session.Codec) func(http.Handler)
 	}
 }
 
+// SessionAndCSRFMiddleware wraps the /api/v1 router so all authenticated routes
+// share a single Session + CSRF enforcement chain (CTO #26):
+//   - Public routes (/status, /auth/register, /auth/login, /auth/verify-email,
+//     /auth/password/forgot, /auth/password/reset) pass straight through.
+//   - /auth/logout and /auth/mfa/verify accept either a full or mfa_pending session
+//     followed by CSRFMiddleware.
+//   - All other /api/v1/* routes require a full session (SessionMiddleware)
+//     followed by CSRFMiddleware.
+func SessionAndCSRFMiddleware(svc *Service, sessions *session.Codec, allowedOrigins []string) func(http.Handler) http.Handler {
+	fullAuth := SessionMiddleware(svc, sessions)
+	csrf := CSRFMiddleware(sessions, allowedOrigins)
+
+	anyAuth := func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			active, ok := authenticateAnyCookie(w, r, svc, sessions)
+			if !ok {
+				return
+			}
+			next.ServeHTTP(w, r.WithContext(WithActiveSession(r.Context(), active)))
+		})
+	}
+
+	return func(next http.Handler) http.Handler {
+		fullChain := fullAuth(csrf(next))
+		anyChain := anyAuth(csrf(next))
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			switch r.URL.Path {
+			case "/api/v1/status",
+				"/api/v1/auth/register",
+				"/api/v1/auth/login",
+				"/api/v1/auth/verify-email",
+				"/api/v1/auth/password/forgot",
+				"/api/v1/auth/password/reset":
+				next.ServeHTTP(w, r)
+			case "/api/v1/auth/logout",
+				"/api/v1/auth/mfa/verify":
+				anyChain.ServeHTTP(w, r)
+			default:
+				fullChain.ServeHTTP(w, r)
+			}
+		})
+	}
+}
+
 // CSRFMiddleware enforces strict Origin allowlist + constant-time X-CSRF-Token
 // validation on state-changing cookie-authenticated requests (ADR-005 §3.1).
 func CSRFMiddleware(sessions *session.Codec, allowedOrigins []string) func(http.Handler) http.Handler {
@@ -119,6 +163,29 @@ func authenticateCookie(w http.ResponseWriter, r *http.Request, svc *Service, se
 		}
 		httpserver.WriteError(w, r, http.StatusInternalServerError, "INTERNAL_ERROR", "An internal error occurred.")
 		return ActiveSession{}, false
+	}
+	return active, true
+}
+
+func authenticateAnyCookie(w http.ResponseWriter, r *http.Request, svc *Service, sessions *session.Codec) (ActiveSession, bool) {
+	ck, err := r.Cookie(sessions.CookieName())
+	if err != nil || strings.TrimSpace(ck.Value) == "" {
+		httpserver.WriteError(w, r, http.StatusUnauthorized, "UNAUTHENTICATED", "Authentication is required.")
+		return ActiveSession{}, false
+	}
+	active, err := svc.AuthenticateSession(r.Context(), ck.Value)
+	if err != nil {
+		if errors.Is(err, ErrSessionExpired) {
+			active, err = svc.AuthenticatePendingMFASession(r.Context(), ck.Value)
+		}
+		if err != nil {
+			if errors.Is(err, ErrSessionExpired) {
+				httpserver.WriteError(w, r, http.StatusUnauthorized, "SESSION_EXPIRED", "Session has expired or been revoked.")
+				return ActiveSession{}, false
+			}
+			httpserver.WriteError(w, r, http.StatusInternalServerError, "INTERNAL_ERROR", "An internal error occurred.")
+			return ActiveSession{}, false
+		}
 	}
 	return active, true
 }

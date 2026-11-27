@@ -111,9 +111,10 @@ func (h *Handler) AuthLogin(w http.ResponseWriter, r *http.Request) {
 }
 
 // AuthLogout handles POST /api/v1/auth/logout (accepts full or mfa_pending session).
-func (h *Handler) AuthLogout(w http.ResponseWriter, r *http.Request, params api.AuthLogoutParams) {
-	active, ok := h.authenticateAnyAndVerifyCSRF(w, r, params.XCSRFToken)
+func (h *Handler) AuthLogout(w http.ResponseWriter, r *http.Request, _ api.AuthLogoutParams) {
+	active, ok := ActiveSessionFromContext(r.Context())
 	if !ok {
+		httpserver.WriteError(w, r, http.StatusUnauthorized, "UNAUTHENTICATED", "Authentication is required.")
 		return
 	}
 
@@ -127,9 +128,10 @@ func (h *Handler) AuthLogout(w http.ResponseWriter, r *http.Request, params api.
 }
 
 // AuthRefresh handles POST /api/v1/auth/refresh.
-func (h *Handler) AuthRefresh(w http.ResponseWriter, r *http.Request, params api.AuthRefreshParams) {
-	active, ok := h.authenticateAndVerifyCSRF(w, r, params.XCSRFToken)
+func (h *Handler) AuthRefresh(w http.ResponseWriter, r *http.Request, _ api.AuthRefreshParams) {
+	active, ok := ActiveSessionFromContext(r.Context())
 	if !ok {
+		httpserver.WriteError(w, r, http.StatusUnauthorized, "UNAUTHENTICATED", "Authentication is required.")
 		return
 	}
 
@@ -200,9 +202,10 @@ func (h *Handler) AuthPasswordReset(w http.ResponseWriter, r *http.Request) {
 }
 
 // AuthMFASetup handles POST /api/v1/auth/mfa/setup.
-func (h *Handler) AuthMFASetup(w http.ResponseWriter, r *http.Request, params api.AuthMFASetupParams) {
-	active, ok := h.authenticateAndVerifyCSRF(w, r, params.XCSRFToken)
+func (h *Handler) AuthMFASetup(w http.ResponseWriter, r *http.Request, _ api.AuthMFASetupParams) {
+	active, ok := ActiveSessionFromContext(r.Context())
 	if !ok {
+		httpserver.WriteError(w, r, http.StatusUnauthorized, "UNAUTHENTICATED", "Authentication is required.")
 		return
 	}
 	res, err := h.svc.SetupMFA(r.Context(), active)
@@ -217,9 +220,10 @@ func (h *Handler) AuthMFASetup(w http.ResponseWriter, r *http.Request, params ap
 }
 
 // AuthMFAVerify handles POST /api/v1/auth/mfa/verify (setup confirmation or two-step login).
-func (h *Handler) AuthMFAVerify(w http.ResponseWriter, r *http.Request, params api.AuthMFAVerifyParams) {
-	active, ok := h.authenticateAnyAndVerifyCSRF(w, r, params.XCSRFToken)
+func (h *Handler) AuthMFAVerify(w http.ResponseWriter, r *http.Request, _ api.AuthMFAVerifyParams) {
+	active, ok := ActiveSessionFromContext(r.Context())
 	if !ok {
+		httpserver.WriteError(w, r, http.StatusUnauthorized, "UNAUTHENTICATED", "Authentication is required.")
 		return
 	}
 	var req api.MFAVerifyRequest
@@ -258,9 +262,10 @@ func (h *Handler) AuthMFAVerify(w http.ResponseWriter, r *http.Request, params a
 }
 
 // AuthReauth handles POST /api/v1/auth/reauth.
-func (h *Handler) AuthReauth(w http.ResponseWriter, r *http.Request, params api.AuthReauthParams) {
-	active, ok := h.authenticateAndVerifyCSRF(w, r, params.XCSRFToken)
+func (h *Handler) AuthReauth(w http.ResponseWriter, r *http.Request, _ api.AuthReauthParams) {
+	active, ok := ActiveSessionFromContext(r.Context())
 	if !ok {
+		httpserver.WriteError(w, r, http.StatusUnauthorized, "UNAUTHENTICATED", "Authentication is required.")
 		return
 	}
 	var req api.ReauthRequest
@@ -277,53 +282,6 @@ func (h *Handler) AuthReauth(w http.ResponseWriter, r *http.Request, params api.
 		return
 	}
 	h.writeAuthSession(w, res)
-}
-
-func (h *Handler) authenticateAnyAndVerifyCSRF(w http.ResponseWriter, r *http.Request, csrfToken string) (ActiveSession, bool) {
-	ck, err := r.Cookie(h.sessions.CookieName())
-	if err != nil || ck.Value == "" {
-		httpserver.WriteError(w, r, http.StatusUnauthorized, "UNAUTHENTICATED", "Authentication is required.")
-		return ActiveSession{}, false
-	}
-	active, err := h.svc.AuthenticateSession(r.Context(), ck.Value)
-	if err != nil {
-		if errors.Is(err, ErrSessionExpired) {
-			active, err = h.svc.AuthenticatePendingMFASession(r.Context(), ck.Value)
-		}
-		if err != nil {
-			if errors.Is(err, ErrSessionExpired) {
-				httpserver.WriteError(w, r, http.StatusUnauthorized, "SESSION_EXPIRED", "Session has expired or been revoked.")
-				return ActiveSession{}, false
-			}
-			httpserver.WriteError(w, r, http.StatusInternalServerError, "INTERNAL_ERROR", "An internal error occurred.")
-			return ActiveSession{}, false
-		}
-	}
-	if !isAllowedOrigin(r.Header.Get("Origin"), h.allowedOrigins) {
-		httpserver.WriteError(w, r, http.StatusForbidden, "CSRF_INVALID", "Invalid or missing request origin.")
-		return ActiveSession{}, false
-	}
-	if !h.sessions.VerifyCSRFToken(csrfToken, active.CSRFTokenHash) {
-		httpserver.WriteError(w, r, http.StatusForbidden, "CSRF_INVALID", "Invalid or missing CSRF token.")
-		return ActiveSession{}, false
-	}
-	return active, true
-}
-
-func (h *Handler) authenticateAndVerifyCSRF(w http.ResponseWriter, r *http.Request, csrfToken string) (ActiveSession, bool) {
-	active, ok := authenticateCookie(w, r, h.svc, h.sessions)
-	if !ok {
-		return ActiveSession{}, false
-	}
-	if !isAllowedOrigin(r.Header.Get("Origin"), h.allowedOrigins) {
-		httpserver.WriteError(w, r, http.StatusForbidden, "CSRF_INVALID", "Invalid or missing request origin.")
-		return ActiveSession{}, false
-	}
-	if !h.sessions.VerifyCSRFToken(csrfToken, active.CSRFTokenHash) {
-		httpserver.WriteError(w, r, http.StatusForbidden, "CSRF_INVALID", "Invalid or missing CSRF token.")
-		return ActiveSession{}, false
-	}
-	return active, true
 }
 
 func (h *Handler) writeAuthSession(w http.ResponseWriter, res AuthResult) {

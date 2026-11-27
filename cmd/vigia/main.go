@@ -17,9 +17,13 @@ import (
 	"github.com/redis/go-redis/v9"
 
 	"github.com/Yhanko/vigia/internal/api"
+	"github.com/Yhanko/vigia/internal/modules/audit"
+	"github.com/Yhanko/vigia/internal/modules/credentials"
 	"github.com/Yhanko/vigia/internal/modules/identity"
 	"github.com/Yhanko/vigia/internal/modules/identity/password"
 	"github.com/Yhanko/vigia/internal/modules/identity/session"
+	"github.com/Yhanko/vigia/internal/modules/organizations"
+	"github.com/Yhanko/vigia/internal/modules/projects"
 	"github.com/Yhanko/vigia/internal/platform/clock"
 	"github.com/Yhanko/vigia/internal/platform/config"
 	"github.com/Yhanko/vigia/internal/platform/crypto"
@@ -185,7 +189,25 @@ func runAPI() error {
 		})
 	}
 
-	var idHandler *identity.Handler
+	var (
+		idHandler   *identity.Handler
+		orgHandler  *organizations.Handler
+		audHandler  *audit.Handler
+		projHandler *projects.Handler
+		credHandler *credentials.Handler
+		apiAuthMW   func(http.Handler) http.Handler
+		credSvc     *credentials.Service
+	)
+	allowedOrigins := buildAllowedOrigins(cfg)
+
+	var mailSender *mailer.SMTPMailer
+	if cfg.SMTPURL != "" {
+		mailSender, err = mailer.NewSMTPMailer(cfg.SMTPURL, "no-reply@vigia.ao")
+		if err != nil {
+			return err
+		}
+	}
+
 	if pool != nil && limiter != nil && !cfg.SessionSecret.IsEmpty() {
 		idStore, err := identity.NewPostgresStore(pool)
 		if err != nil {
@@ -199,12 +221,9 @@ func runAPI() error {
 		if err != nil {
 			return err
 		}
-		var mailSender identity.Mailer
-		if cfg.SMTPURL != "" {
-			mailSender, err = mailer.NewSMTPMailer(cfg.SMTPURL, "no-reply@vigia.ao")
-			if err != nil {
-				return err
-			}
+		var idMailer identity.Mailer
+		if mailSender != nil {
+			idMailer = mailSender
 		}
 		var idEnc identity.SecretEncrypter
 		if encrypter != nil {
@@ -217,7 +236,7 @@ func runAPI() error {
 			Limiter:         limiter,
 			RateLimitSecret: []byte(cfg.SessionSecret.Value()),
 			Encrypter:       idEnc,
-			Mailer:          mailSender,
+			Mailer:          idMailer,
 			AppURL:          cfg.AppURL,
 			Clock:           clk,
 			Logger:          logger,
@@ -225,7 +244,84 @@ func runAPI() error {
 		if err != nil {
 			return err
 		}
-		idHandler, err = identity.NewHandler(idSvc, idSessions, buildAllowedOrigins(cfg), cfg.TrustedProxies, logger)
+		idHandler, err = identity.NewHandler(idSvc, idSessions, allowedOrigins, cfg.TrustedProxies, logger)
+		if err != nil {
+			return err
+		}
+		apiAuthMW = identity.SessionAndCSRFMiddleware(idSvc, idSessions, allowedOrigins)
+
+		var orgMailer organizations.Mailer
+		if mailSender != nil {
+			orgMailer = mailSender
+		}
+		orgSvc, err := organizations.NewService(organizations.ServiceConfig{
+			Pool:                     pool,
+			Mailer:                   orgMailer,
+			AppURL:                   cfg.AppURL,
+			MFARequiredForPrivileged: cfg.MFARequiredForPrivileged,
+			Clock:                    clk,
+		})
+		if err != nil {
+			return err
+		}
+		orgHandler, err = organizations.NewHandler(orgSvc, cfg.TrustedProxies, logger)
+		if err != nil {
+			return err
+		}
+
+		audSvc, err := audit.NewService(pool)
+		if err != nil {
+			return err
+		}
+		audHandler, err = audit.NewHandler(audSvc, orgSvc, cfg.TrustedProxies, logger)
+		if err != nil {
+			return err
+		}
+
+		var credInvalidator projects.CredentialCacheInvalidator
+		if !cfg.APIKeyPepper.IsEmpty() {
+			var credCache credentials.Cache
+			if rdb != nil {
+				credCache = credentials.NewRedisCache(rdb)
+			}
+			ingestHost := "ingest.vigia.local"
+			if u, uErr := url.Parse(cfg.AppURL); uErr == nil && u.Host != "" {
+				ingestHost = u.Host
+			}
+			credSvc, err = credentials.NewService(credentials.ServiceConfig{
+				Pool:                     pool,
+				Cache:                    credCache,
+				Pepper:                   []byte(cfg.APIKeyPepper.Value()),
+				IngestHost:               ingestHost,
+				MFARequiredForPrivileged: cfg.MFARequiredForPrivileged,
+				Clock:                    clk,
+				Logger:                   logger,
+			})
+			if err != nil {
+				return err
+			}
+			defer func() {
+				flushCtx, flushCancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer flushCancel()
+				credSvc.Close(flushCtx)
+			}()
+			credInvalidator = credSvc
+			credHandler, err = credentials.NewHandler(credSvc, cfg.TrustedProxies, logger)
+			if err != nil {
+				return err
+			}
+		}
+
+		projSvc, err := projects.NewService(projects.ServiceConfig{
+			Pool:                     pool,
+			CredentialInvalidator:    credInvalidator,
+			MFARequiredForPrivileged: cfg.MFARequiredForPrivileged,
+			Clock:                    clk,
+		})
+		if err != nil {
+			return err
+		}
+		projHandler, err = projects.NewHandler(projSvc, cfg.TrustedProxies, logger)
 		if err != nil {
 			return err
 		}
@@ -234,9 +330,13 @@ func runAPI() error {
 	}
 
 	composedAPI := compositeAPIServer{
-		version:  version,
-		commit:   commit,
-		identity: idHandler,
+		version:     version,
+		commit:      commit,
+		identity:    idHandler,
+		orgs:        orgHandler,
+		audit:       audHandler,
+		projects:    projHandler,
+		credentials: credHandler,
 	}
 
 	srv := httpserver.New(httpserver.Options{
@@ -248,6 +348,7 @@ func runAPI() error {
 		MaxBodyBytes: cfg.APIMaxBodyBytes,
 		HSTS:         cfg.AppEnv == "production",
 		APIRateLimit: apiRateLimitMW,
+		APIAuth:      apiAuthMW,
 		APIServer:    composedAPI,
 	})
 	adminSrv := httpserver.NewAdmin(httpserver.AdminOptions{
@@ -292,9 +393,13 @@ func runAPI() error {
 // compositeAPIServer composes domain handlers with the infrastructure /status
 // endpoint to satisfy api.ServerInterface (CTO #6, #18).
 type compositeAPIServer struct {
-	version  string
-	commit   string
-	identity *identity.Handler
+	version     string
+	commit      string
+	identity    *identity.Handler
+	orgs        *organizations.Handler
+	audit       *audit.Handler
+	projects    *projects.Handler
+	credentials *credentials.Handler
 }
 
 func (s compositeAPIServer) GetStatus(w http.ResponseWriter, _ *http.Request) {
@@ -389,11 +494,247 @@ func (s compositeAPIServer) AuthMFAVerify(w http.ResponseWriter, r *http.Request
 
 func (s compositeAPIServer) AuthReauth(w http.ResponseWriter, r *http.Request, params api.AuthReauthParams) {
 	if s.identity == nil {
-		w.Header().Set("Retry-After", "5")
-		httpserver.WriteError(w, r, http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "Authentication service unavailable.")
+		writeServiceUnavailable(w, r)
 		return
 	}
 	s.identity.AuthReauth(w, r, params)
+}
+
+func (s compositeAPIServer) ListOrganizations(w http.ResponseWriter, r *http.Request) {
+	if s.orgs == nil {
+		writeServiceUnavailable(w, r)
+		return
+	}
+	s.orgs.ListOrganizations(w, r)
+}
+
+func (s compositeAPIServer) CreateOrganization(w http.ResponseWriter, r *http.Request, params api.CreateOrganizationParams) {
+	if s.orgs == nil {
+		writeServiceUnavailable(w, r)
+		return
+	}
+	s.orgs.CreateOrganization(w, r, params)
+}
+
+func (s compositeAPIServer) GetOrganization(w http.ResponseWriter, r *http.Request, orgId api.OrgIDPath) {
+	if s.orgs == nil {
+		writeServiceUnavailable(w, r)
+		return
+	}
+	s.orgs.GetOrganization(w, r, orgId)
+}
+
+func (s compositeAPIServer) UpdateOrganization(w http.ResponseWriter, r *http.Request, orgId api.OrgIDPath, params api.UpdateOrganizationParams) {
+	if s.orgs == nil {
+		writeServiceUnavailable(w, r)
+		return
+	}
+	s.orgs.UpdateOrganization(w, r, orgId, params)
+}
+
+func (s compositeAPIServer) DeleteOrganization(w http.ResponseWriter, r *http.Request, orgId api.OrgIDPath, params api.DeleteOrganizationParams) {
+	if s.orgs == nil {
+		writeServiceUnavailable(w, r)
+		return
+	}
+	s.orgs.DeleteOrganization(w, r, orgId, params)
+}
+
+func (s compositeAPIServer) TransferOrganizationOwnership(w http.ResponseWriter, r *http.Request, orgId api.OrgIDPath, params api.TransferOrganizationOwnershipParams) {
+	if s.orgs == nil {
+		writeServiceUnavailable(w, r)
+		return
+	}
+	s.orgs.TransferOrganizationOwnership(w, r, orgId, params)
+}
+
+func (s compositeAPIServer) ListOrganizationMembers(w http.ResponseWriter, r *http.Request, orgId api.OrgIDPath) {
+	if s.orgs == nil {
+		writeServiceUnavailable(w, r)
+		return
+	}
+	s.orgs.ListOrganizationMembers(w, r, orgId)
+}
+
+func (s compositeAPIServer) UpdateOrganizationMember(w http.ResponseWriter, r *http.Request, orgId api.OrgIDPath, memberId api.MemberIDPath, params api.UpdateOrganizationMemberParams) {
+	if s.orgs == nil {
+		writeServiceUnavailable(w, r)
+		return
+	}
+	s.orgs.UpdateOrganizationMember(w, r, orgId, memberId, params)
+}
+
+func (s compositeAPIServer) RemoveOrganizationMember(w http.ResponseWriter, r *http.Request, orgId api.OrgIDPath, memberId api.MemberIDPath, params api.RemoveOrganizationMemberParams) {
+	if s.orgs == nil {
+		writeServiceUnavailable(w, r)
+		return
+	}
+	s.orgs.RemoveOrganizationMember(w, r, orgId, memberId, params)
+}
+
+func (s compositeAPIServer) ListOrganizationInvitations(w http.ResponseWriter, r *http.Request, orgId api.OrgIDPath) {
+	if s.orgs == nil {
+		writeServiceUnavailable(w, r)
+		return
+	}
+	s.orgs.ListOrganizationInvitations(w, r, orgId)
+}
+
+func (s compositeAPIServer) CreateOrganizationInvitation(w http.ResponseWriter, r *http.Request, orgId api.OrgIDPath, params api.CreateOrganizationInvitationParams) {
+	if s.orgs == nil {
+		writeServiceUnavailable(w, r)
+		return
+	}
+	s.orgs.CreateOrganizationInvitation(w, r, orgId, params)
+}
+
+func (s compositeAPIServer) RevokeOrganizationInvitation(w http.ResponseWriter, r *http.Request, orgId api.OrgIDPath, invitationId api.InvitationIDPath, params api.RevokeOrganizationInvitationParams) {
+	if s.orgs == nil {
+		writeServiceUnavailable(w, r)
+		return
+	}
+	s.orgs.RevokeOrganizationInvitation(w, r, orgId, invitationId, params)
+}
+
+func (s compositeAPIServer) AcceptOrganizationInvitation(w http.ResponseWriter, r *http.Request, params api.AcceptOrganizationInvitationParams) {
+	if s.orgs == nil {
+		writeServiceUnavailable(w, r)
+		return
+	}
+	s.orgs.AcceptOrganizationInvitation(w, r, params)
+}
+
+func (s compositeAPIServer) ListOrganizationTeams(w http.ResponseWriter, r *http.Request, orgId api.OrgIDPath) {
+	if s.orgs == nil {
+		writeServiceUnavailable(w, r)
+		return
+	}
+	s.orgs.ListOrganizationTeams(w, r, orgId)
+}
+
+func (s compositeAPIServer) CreateOrganizationTeam(w http.ResponseWriter, r *http.Request, orgId api.OrgIDPath, params api.CreateOrganizationTeamParams) {
+	if s.orgs == nil {
+		writeServiceUnavailable(w, r)
+		return
+	}
+	s.orgs.CreateOrganizationTeam(w, r, orgId, params)
+}
+
+func (s compositeAPIServer) DeleteOrganizationTeam(w http.ResponseWriter, r *http.Request, orgId api.OrgIDPath, teamId api.TeamIDPath, params api.DeleteOrganizationTeamParams) {
+	if s.orgs == nil {
+		writeServiceUnavailable(w, r)
+		return
+	}
+	s.orgs.DeleteOrganizationTeam(w, r, orgId, teamId, params)
+}
+
+func (s compositeAPIServer) ListOrganizationAuditLogs(w http.ResponseWriter, r *http.Request, orgId api.OrgIDPath, params api.ListOrganizationAuditLogsParams) {
+	if s.audit == nil {
+		writeServiceUnavailable(w, r)
+		return
+	}
+	s.audit.ListOrganizationAuditLogs(w, r, orgId, params)
+}
+
+func (s compositeAPIServer) ListOrganizationProjects(w http.ResponseWriter, r *http.Request, orgId api.OrgIDPath, params api.ListOrganizationProjectsParams) {
+	if s.projects == nil {
+		writeServiceUnavailable(w, r)
+		return
+	}
+	s.projects.ListOrganizationProjects(w, r, orgId, params)
+}
+
+func (s compositeAPIServer) CreateOrganizationProject(w http.ResponseWriter, r *http.Request, orgId api.OrgIDPath, params api.CreateOrganizationProjectParams) {
+	if s.projects == nil {
+		writeServiceUnavailable(w, r)
+		return
+	}
+	s.projects.CreateOrganizationProject(w, r, orgId, params)
+}
+
+func (s compositeAPIServer) GetOrganizationProject(w http.ResponseWriter, r *http.Request, orgId api.OrgIDPath, projectId api.ProjectIDPath) {
+	if s.projects == nil {
+		writeServiceUnavailable(w, r)
+		return
+	}
+	s.projects.GetOrganizationProject(w, r, orgId, projectId)
+}
+
+func (s compositeAPIServer) UpdateOrganizationProject(w http.ResponseWriter, r *http.Request, orgId api.OrgIDPath, projectId api.ProjectIDPath, params api.UpdateOrganizationProjectParams) {
+	if s.projects == nil {
+		writeServiceUnavailable(w, r)
+		return
+	}
+	s.projects.UpdateOrganizationProject(w, r, orgId, projectId, params)
+}
+
+func (s compositeAPIServer) DeleteOrganizationProject(w http.ResponseWriter, r *http.Request, orgId api.OrgIDPath, projectId api.ProjectIDPath, params api.DeleteOrganizationProjectParams) {
+	if s.projects == nil {
+		writeServiceUnavailable(w, r)
+		return
+	}
+	s.projects.DeleteOrganizationProject(w, r, orgId, projectId, params)
+}
+
+func (s compositeAPIServer) ListProjectEnvironments(w http.ResponseWriter, r *http.Request, orgId api.OrgIDPath, projectId api.ProjectIDPath) {
+	if s.projects == nil {
+		writeServiceUnavailable(w, r)
+		return
+	}
+	s.projects.ListProjectEnvironments(w, r, orgId, projectId)
+}
+
+func (s compositeAPIServer) CreateProjectEnvironment(w http.ResponseWriter, r *http.Request, orgId api.OrgIDPath, projectId api.ProjectIDPath, params api.CreateProjectEnvironmentParams) {
+	if s.projects == nil {
+		writeServiceUnavailable(w, r)
+		return
+	}
+	s.projects.CreateProjectEnvironment(w, r, orgId, projectId, params)
+}
+
+func (s compositeAPIServer) DeleteProjectEnvironment(w http.ResponseWriter, r *http.Request, orgId api.OrgIDPath, environmentId api.EnvironmentIDPath, params api.DeleteProjectEnvironmentParams) {
+	if s.projects == nil {
+		writeServiceUnavailable(w, r)
+		return
+	}
+	s.projects.DeleteProjectEnvironment(w, r, orgId, environmentId, params)
+}
+
+func (s compositeAPIServer) ListProjectCredentials(w http.ResponseWriter, r *http.Request, orgId api.OrgIDPath, projectId api.ProjectIDPath) {
+	if s.credentials == nil {
+		writeServiceUnavailable(w, r)
+		return
+	}
+	s.credentials.ListProjectCredentials(w, r, orgId, projectId)
+}
+
+func (s compositeAPIServer) CreateProjectCredential(w http.ResponseWriter, r *http.Request, orgId api.OrgIDPath, projectId api.ProjectIDPath, params api.CreateProjectCredentialParams) {
+	if s.credentials == nil {
+		writeServiceUnavailable(w, r)
+		return
+	}
+	s.credentials.CreateProjectCredential(w, r, orgId, projectId, params)
+}
+
+func (s compositeAPIServer) RevokeOrganizationCredential(w http.ResponseWriter, r *http.Request, orgId api.OrgIDPath, credentialId api.CredentialIDPath, params api.RevokeOrganizationCredentialParams) {
+	if s.credentials == nil {
+		writeServiceUnavailable(w, r)
+		return
+	}
+	s.credentials.RevokeOrganizationCredential(w, r, orgId, credentialId, params)
+}
+
+func (s compositeAPIServer) RotateOrganizationCredential(w http.ResponseWriter, r *http.Request, orgId api.OrgIDPath, credentialId api.CredentialIDPath, params api.RotateOrganizationCredentialParams) {
+	if s.credentials == nil {
+		writeServiceUnavailable(w, r)
+		return
+	}
+	s.credentials.RotateOrganizationCredential(w, r, orgId, credentialId, params)
+}
+
+func writeServiceUnavailable(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Retry-After", "5")
+	httpserver.WriteError(w, r, http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "Service temporarily unavailable.")
 }
 
 func buildAllowedOrigins(cfg config.Config) []string {
