@@ -27,11 +27,184 @@ paths:
               schema:
                 $ref: "#/components/schemas/StatusResponse"
         "429":
-          description: Rate limit exceeded
+          $ref: "#/components/responses/RateLimited"
+        default:
+          description: Error response
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+
+  /auth/register:
+    post:
+      operationId: authRegister
+      summary: Register a new user account
+      description: >
+        Creates a user account and triggers email verification. Always returns a
+        generic 202 response on valid input to prevent account enumeration (ADR-005).
+      security: []
+      tags:
+        - auth
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterRequest"
+      responses:
+        "202":
+          description: Registration request accepted (generic anti-enumeration response)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AcceptedMessageResponse"
+        "400":
+          description: Invalid JSON or domain validation error (`INVALID_JSON`, `VALIDATION_FAILED`)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+        default:
+          description: Error response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /auth/login:
+    post:
+      operationId: authLogin
+      summary: Authenticate with email and password
+      description: >
+        Verifies credentials with Argon2id (after rate limiting), rotates the session,
+        and sets the HttpOnly session cookie. Returns a generic 401 on invalid credentials
+        to prevent account enumeration (ADR-005).
+      security: []
+      tags:
+        - auth
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: Authenticated session established via HttpOnly Set-Cookie header
+          headers:
+            Set-Cookie:
+              description: HttpOnly session cookie (`vigia_session` in development, `__Host-vigia_session` in staging/production).
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthSessionResponse"
+        "400":
+          description: Invalid JSON or validation error (`INVALID_JSON`, `VALIDATION_FAILED`)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Invalid credentials or MFA required (`INVALID_CREDENTIALS`, `MFA_REQUIRED`)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+        default:
+          description: Error response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /auth/logout:
+    post:
+      operationId: authLogout
+      summary: Revoke the active session and clear the session cookie
+      security:
+        - sessionCookie: []
+      tags:
+        - auth
+      parameters:
+        - $ref: "#/components/parameters/CSRFTokenHeader"
+      responses:
+        "204":
+          description: Session revoked and cookie cleared
+          headers:
+            Set-Cookie:
+              description: Expired session cookie clearing browser storage.
+              schema:
+                type: string
+        "401":
+          description: Missing, expired, or revoked session (`UNAUTHENTICATED`, `SESSION_EXPIRED`)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Missing or invalid Origin or CSRF token (`CSRF_INVALID`)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        default:
+          description: Error response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /auth/refresh:
+    post:
+      operationId: authRefresh
+      summary: Rotate and extend the active sliding session
+      description: >
+        Extends the sliding 7-day session window (up to the 30-day absolute limit),
+        rotates the session token and CSRF token, and updates the HttpOnly cookie.
+      security:
+        - sessionCookie: []
+      tags:
+        - auth
+      parameters:
+        - $ref: "#/components/parameters/CSRFTokenHeader"
+      responses:
+        "200":
+          description: Session refreshed and rotated via Set-Cookie header
+          headers:
+            Set-Cookie:
+              description: Rotated HttpOnly session cookie.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthSessionResponse"
+        "401":
+          description: Missing, expired, or revoked session (`UNAUTHENTICATED`, `SESSION_EXPIRED`)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Missing or invalid Origin or CSRF token (`CSRF_INVALID`)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          $ref: "#/components/responses/RateLimited"
         default:
           description: Error response
           content:
@@ -40,6 +213,57 @@ paths:
                 $ref: "#/components/schemas/ErrorResponse"
 
 components:
+  parameters:
+    CSRFTokenHeader:
+      name: X-CSRF-Token
+      in: header
+      required: true
+      description: Session-bound CSRF token required on state-changing cookie-authenticated requests (ADR-005).
+      schema:
+        type: string
+        minLength: 1
+
+  responses:
+    RateLimited:
+      description: Rate limit exceeded (`RATE_LIMIT_EXCEEDED`)
+      headers:
+        Retry-After:
+          description: Seconds to wait before retrying.
+          schema:
+            type: integer
+            minimum: 1
+        RateLimit-Limit:
+          description: Request limit for the active window.
+          schema:
+            type: integer
+            minimum: 1
+        RateLimit-Remaining:
+          description: Remaining requests in the active window.
+          schema:
+            type: integer
+            minimum: 0
+        RateLimit-Reset:
+          description: Seconds until the rate limit window resets.
+          schema:
+            type: integer
+            minimum: 0
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+
+    ServiceUnavailable:
+      description: Service temporarily unavailable due to backpressure, such as Argon2id concurrency saturation (`SERVICE_UNAVAILABLE`)
+      headers:
+        Retry-After:
+          description: Seconds to wait before retrying.
+          schema:
+            type: integer
+            minimum: 1
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
   securitySchemes:
     sessionCookie:
       type: apiKey
@@ -118,3 +342,86 @@ components:
       properties:
         error:
           $ref: "#/components/schemas/ErrorBody"
+
+    RegisterRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - email
+        - name
+        - password
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 254
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+        password:
+          type: string
+          format: password
+          minLength: 12
+          maxLength: 128
+
+    LoginRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - email
+        - password
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 254
+        password:
+          type: string
+          format: password
+          minLength: 1
+          maxLength: 128
+
+    AcceptedMessageResponse:
+      type: object
+      required:
+        - message
+      properties:
+        message:
+          type: string
+          example: If your request is eligible, check your email for further instructions.
+
+    AuthUser:
+      type: object
+      required:
+        - id
+        - email
+        - name
+        - mfaEnabled
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        name:
+          type: string
+        mfaEnabled:
+          type: boolean
+
+    AuthSessionResponse:
+      type: object
+      required:
+        - user
+        - csrfToken
+        - expiresAt
+      properties:
+        user:
+          $ref: "#/components/schemas/AuthUser"
+        csrfToken:
+          type: string
+          description: CSRF token to send in the X-CSRF-Token header on subsequent state-changing requests.
+        expiresAt:
+          type: string
+          format: date-time

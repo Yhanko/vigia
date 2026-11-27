@@ -66,34 +66,21 @@ func NewHandler(opts Options) http.Handler {
 		WriteError(w, req, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "The HTTP method is not allowed for this endpoint.")
 	})
 
-	// Versioned product API (README §9), wired through the oapi-codegen ServerInterface.
+	// Versioned product API (README §9). Only the infrastructure /status
+	// endpoint lives in platform/httpserver; domain handlers live in
+	// internal/modules/<domain> and mount onto /api/v1 from cmd/vigia.
 	r.Route("/api/v1", func(v1 chi.Router) {
-		api.HandlerWithOptions(apiHandlers{
-			version: opts.Version,
-			commit:  opts.Commit,
-		}, api.ChiServerOptions{
-			BaseRouter: v1,
-			ErrorHandlerFunc: func(w http.ResponseWriter, req *http.Request, _ error) {
-				WriteError(w, req, http.StatusBadRequest, "VALIDATION_FAILED", "Invalid request parameters.")
-			},
+		v1.Get("/status", func(w http.ResponseWriter, _ *http.Request) {
+			WriteJSON(w, http.StatusOK, api.StatusResponse{
+				Service: "vigia",
+				Status:  "ok",
+				Version: opts.Version,
+				Commit:  opts.Commit,
+			})
 		})
 	})
 
 	return r
-}
-
-type apiHandlers struct {
-	version string
-	commit  string
-}
-
-func (h apiHandlers) GetStatus(w http.ResponseWriter, _ *http.Request) {
-	WriteJSON(w, http.StatusOK, api.StatusResponse{
-		Service: "vigia",
-		Status:  "ok",
-		Version: h.version,
-		Commit:  h.commit,
-	})
 }
 
 // NewAdminHandler constructs the internal operational router (README §9.3).
