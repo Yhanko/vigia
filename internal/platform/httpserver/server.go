@@ -33,6 +33,8 @@ type Options struct {
 	MaxBodyBytes int64
 	// HSTS enables Strict-Transport-Security; set only when served over TLS (production).
 	HSTS bool
+	// APIRateLimit optionally wraps the /api/v1 route group with base per-IP rate limiting.
+	APIRateLimit func(http.Handler) http.Handler
 }
 
 // AdminOptions configures the internal operational listener (ADMIN_PORT),
@@ -70,6 +72,9 @@ func NewHandler(opts Options) http.Handler {
 	// endpoint lives in platform/httpserver; domain handlers live in
 	// internal/modules/<domain> and mount onto /api/v1 from cmd/vigia.
 	r.Route("/api/v1", func(v1 chi.Router) {
+		if opts.APIRateLimit != nil {
+			v1.Use(opts.APIRateLimit)
+		}
 		v1.Get("/status", func(w http.ResponseWriter, _ *http.Request) {
 			WriteJSON(w, http.StatusOK, api.StatusResponse{
 				Service: "vigia",
