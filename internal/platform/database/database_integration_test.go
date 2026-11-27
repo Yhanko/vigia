@@ -290,6 +290,17 @@ func TestDatabaseIntegration(t *testing.T) {
 		if canUpdate || canDelete {
 			t.Fatalf("vigia_app has forbidden audit_logs privileges: UPDATE=%v DELETE=%v", canUpdate, canDelete)
 		}
+
+		// Guard: vigia_app must NEVER have DELETE on organizations (soft delete only; ADR-008 §4).
+		var canDeleteOrg bool
+		if err := adminPool.QueryRow(ctx, `
+			SELECT has_table_privilege('vigia_app', 'public.organizations', 'DELETE')
+		`).Scan(&canDeleteOrg); err != nil {
+			t.Fatalf("query organizations DELETE privilege: %v", err)
+		}
+		if canDeleteOrg {
+			t.Fatal("vigia_app has forbidden DELETE privilege on organizations")
+		}
 	})
 
 	t.Run("RLS fail-closed, cross-tenant isolation, and append-only audit_logs", func(t *testing.T) {
@@ -491,6 +502,16 @@ func TestDatabaseIntegration(t *testing.T) {
 			return nil
 		}); err != nil {
 			t.Fatalf("WithTenantTx(tidA): %v", err)
+		}
+
+		// organizations must reject physical DELETE as vigia_app with SQLSTATE 42501.
+		err = WithTenantTx(ctx, appPool, tidA, func(tx pgx.Tx) error {
+			_, err := tx.Exec(ctx, "DELETE FROM organizations WHERE id = $1", orgA)
+			return err
+		})
+		var delOrgErr *pgconn.PgError
+		if !errors.As(err, &delOrgErr) || delOrgErr.Code != "42501" {
+			t.Fatalf("expected SQLSTATE 42501 for DELETE on organizations as vigia_app, got: %v", err)
 		}
 
 		// Verify ownership = vigia_definer (not vigia) and PUBLIC has NO EXECUTE on both functions.
