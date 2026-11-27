@@ -126,8 +126,9 @@ func (c *Codec) VerifyCSRFToken(providedToken string, expectedHash []byte) bool 
 
 // BuildCookie constructs the hardened session cookie with HttpOnly, Path=/,
 // SameSite=Lax, and Secure=true outside development (ADR-005 §3.1).
-func (c *Codec) BuildCookie(token string, expiresAt time.Time, maxAge time.Duration) *http.Cookie {
-	maxAgeSec := int(maxAge.Seconds())
+// MaxAge is derived from expiresAt.Sub(now) so Expires and MaxAge cannot diverge (CTO #19).
+func (c *Codec) BuildCookie(token string, expiresAt, now time.Time) *http.Cookie {
+	maxAgeSec := int(expiresAt.Sub(now).Seconds())
 	if maxAgeSec < 0 {
 		maxAgeSec = 0
 	}

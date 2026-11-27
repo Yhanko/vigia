@@ -114,7 +114,8 @@ func TestCSRFTokenVerification(t *testing.T) {
 
 func TestBuildAndClearCookieByEnvironment(t *testing.T) {
 	secret := testSecret(t)
-	expires := time.Date(2026, 12, 4, 12, 0, 0, 0, time.UTC)
+	now := time.Date(2026, 11, 27, 12, 0, 0, 0, time.UTC)
+	expires := now.Add(DefaultIdleTTL)
 
 	tests := []struct {
 		env        string
@@ -138,12 +139,15 @@ func TestBuildAndClearCookieByEnvironment(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			ck := c.BuildCookie(tok, expires, DefaultIdleTTL)
+			ck := c.BuildCookie(tok, expires, now)
 			if ck.Name != tc.wantName {
 				t.Fatalf("cookie Name = %q, want %q", ck.Name, tc.wantName)
 			}
 			if ck.Value != tok {
 				t.Fatal("cookie Value mismatch")
+			}
+			if ck.MaxAge != int(DefaultIdleTTL.Seconds()) {
+				t.Fatalf("cookie MaxAge = %d, want %d", ck.MaxAge, int(DefaultIdleTTL.Seconds()))
 			}
 			if !ck.HttpOnly {
 				t.Fatal("cookie HttpOnly must be true")
@@ -159,6 +163,11 @@ func TestBuildAndClearCookieByEnvironment(t *testing.T) {
 			}
 			if ck.Domain != "" {
 				t.Fatalf("cookie Domain = %q, must be empty for __Host- compliance", ck.Domain)
+			}
+
+			pastCk := c.BuildCookie(tok, now.Add(-time.Minute), now)
+			if pastCk.MaxAge != 0 {
+				t.Fatalf("past cookie MaxAge = %d, want 0", pastCk.MaxAge)
 			}
 
 			cleared := c.ClearCookie()

@@ -34,13 +34,14 @@ func TestHasherRoundTripAndTamperDetection(t *testing.T) {
 		t.Fatalf("Verify(wrong) = (%v, %v), want (false, nil)", ok, err)
 	}
 
-	// Tamper last character of the encoded hash digest.
-	last := encoded[len(encoded)-1]
+	// Tamper the first character of the encoded hash digest (never the last
+	// base64 char, whose trailing 4 bits are ignored padding for 32-byte keys).
+	hashIdx := strings.LastIndexByte(encoded, '$') + 1
 	replacement := byte('A')
-	if last == 'A' {
+	if encoded[hashIdx] == 'A' {
 		replacement = 'B'
 	}
-	tampered := encoded[:len(encoded)-1] + string(replacement)
+	tampered := encoded[:hashIdx] + string(replacement) + encoded[hashIdx+1:]
 	ok, err = h.Verify(ctx, pass, tampered)
 	if err != nil || ok {
 		t.Fatalf("Verify(tampered) = (%v, %v), want (false, nil)", ok, err)
