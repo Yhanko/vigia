@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -1226,5 +1227,78 @@ func TestMFASetupVerifyTwoStepLoginRecoveryAndReauth(t *testing.T) {
 	}
 	if !identity.CheckPrivilegedMFA(true, identity.ActiveSession{UserMFAEnabled: false}, "member") {
 		t.Fatal("CheckPrivilegedMFA must allow non-privileged member without MFA")
+	}
+}
+
+func TestReauthPerSessionLockout_CTO35(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, "development")
+	pass := "Reauth-Strong-" + hex.EncodeToString([]byte{0x35, 0x7a, 0x91, 0xc2})
+
+	reg := h.doJSON(http.MethodPost, "/api/v1/auth/register",
+		`{"email":"reauth35@example.com","name":"Reauth User","password":"`+pass+`"}`, h.origin, "198.51.100.1", nil, "")
+	if reg.Code != http.StatusAccepted {
+		t.Fatalf("register status = %d", reg.Code)
+	}
+
+	// Case 1: 5 wrong passwords from 5 DIFFERENT IPs on the same session -> 5th revokes session (401 SESSION_EXPIRED) + audit log.
+	loginRec := h.doJSON(http.MethodPost, "/api/v1/auth/login",
+		`{"email":"reauth35@example.com","password":"`+pass+`"}`, h.origin, "198.51.100.2", nil, "")
+	if loginRec.Code != http.StatusOK {
+		t.Fatalf("login status = %d", loginRec.Code)
+	}
+	ck := loginRec.Result().Cookies()[0]
+	var sessResp api.AuthSessionResponse
+	_ = json.NewDecoder(loginRec.Body).Decode(&sessResp)
+
+	for i := range 5 {
+		ip := fmt.Sprintf("203.0.113.%d", i+10)
+		rec := h.doJSON(http.MethodPost, "/api/v1/auth/reauth", `{"password":"wrong-password-12345"}`, h.origin, ip, ck, sessResp.CsrfToken)
+		if i < 4 {
+			if rec.Code != http.StatusUnauthorized || decodeErrCode(t, rec) != "INVALID_CREDENTIALS" {
+				t.Fatalf("reauth fail #%d = (%d, %s), want (401, INVALID_CREDENTIALS)", i+1, rec.Code, rec.Body.String())
+			}
+		} else {
+			if rec.Code != http.StatusUnauthorized || decodeErrCode(t, rec) != "SESSION_EXPIRED" {
+				t.Fatalf("5th reauth fail = (%d, %s), want (401, SESSION_EXPIRED)", rec.Code, rec.Body.String())
+			}
+		}
+	}
+
+	// Session MUST now be revoked even if the attacker supplies the right password next.
+	afterRevoke := h.doJSON(http.MethodPost, "/api/v1/auth/reauth", `{"password":"`+pass+`"}`, h.origin, "203.0.113.99", ck, sessResp.CsrfToken)
+	if afterRevoke.Code != http.StatusUnauthorized || decodeErrCode(t, afterRevoke) != "SESSION_EXPIRED" {
+		t.Fatalf("post-revoke reauth = (%d, %s), want (401, SESSION_EXPIRED)", afterRevoke.Code, afterRevoke.Body.String())
+	}
+
+	// Verify audit event auth.reauth.session_revoked was recorded.
+	foundRevokeAudit := false
+	h.store.mu.Lock()
+	for _, ev := range h.store.audits {
+		if ev.Action == "auth.reauth.session_revoked" {
+			foundRevokeAudit = true
+		}
+	}
+	h.store.mu.Unlock()
+	if !foundRevokeAudit {
+		t.Fatal("expected auth.reauth.session_revoked audit event after 5th reauth failure")
+	}
+
+	// Case 2: 3 failures followed by 1 success -> succeeds and resets per-session counter.
+	loginRec2 := h.doJSON(http.MethodPost, "/api/v1/auth/login",
+		`{"email":"reauth35@example.com","password":"`+pass+`"}`, h.origin, "198.51.100.3", nil, "")
+	ck2 := loginRec2.Result().Cookies()[0]
+	var sessResp2 api.AuthSessionResponse
+	_ = json.NewDecoder(loginRec2.Body).Decode(&sessResp2)
+
+	for i := range 3 {
+		rec := h.doJSON(http.MethodPost, "/api/v1/auth/reauth", `{"password":"wrong-password-12345"}`, h.origin, fmt.Sprintf("203.0.113.%d", 50+i), ck2, sessResp2.CsrfToken)
+		if rec.Code != http.StatusUnauthorized || decodeErrCode(t, rec) != "INVALID_CREDENTIALS" {
+			t.Fatalf("pre-success fail #%d = (%d, %s)", i+1, rec.Code, rec.Body.String())
+		}
+	}
+	okRec := h.doJSON(http.MethodPost, "/api/v1/auth/reauth", `{"password":"`+pass+`"}`, h.origin, "203.0.113.60", ck2, sessResp2.CsrfToken)
+	if okRec.Code != http.StatusOK {
+		t.Fatalf("reauth success after 3 failures = %d (%s), want 200", okRec.Code, okRec.Body.String())
 	}
 }

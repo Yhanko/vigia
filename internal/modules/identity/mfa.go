@@ -14,10 +14,12 @@ import (
 )
 
 const (
-	PendingMFASessionTTL = 10 * time.Minute
-	MFAVerifyLimitPerIP  = 5
-	MFAVerifyWindow      = 15 * time.Minute
-	mfaIssuerName        = "Vigia"
+	PendingMFASessionTTL   = 10 * time.Minute
+	MFAVerifyLimitPerIP    = 5
+	MFAVerifyWindow        = 15 * time.Minute
+	ReauthLimitPerSession  = 5
+	ReauthWindowPerSession = 15 * time.Minute
+	mfaIssuerName          = "Vigia"
 )
 
 // SecretEncrypter is the consumer-defined minimal interface satisfied by
@@ -256,11 +258,22 @@ func (s *Service) handlePendingMFAFailure(ctx context.Context, active ActiveSess
 }
 
 // Reauth verifies password (and TOTP code when MFA is enabled), rotates the
-// active session, and updates last_auth_at = now (§7.4).
+// active session, and updates last_auth_at = now (§7.4). Enforces a per-session
+// lockout of 5 failures / 15m; on the 5th failure the session is revoked (CTO #35).
 func (s *Service) Reauth(ctx context.Context, active ActiveSession, plainPassword, totpCode string, meta RequestMeta) (AuthResult, error) {
 	if err := s.checkRateLimit(ctx, "auth:login:ip:"+meta.ClientIP, LoginLimitPerIP, LoginWindow); err != nil {
 		return AuthResult{}, err
 	}
+	sessKey := "auth:reauth:session:" + active.ID
+	now := s.clk.Now().UTC()
+	if peekRes, err := s.limiter.Peek(ctx, sessKey, ReauthLimitPerSession, ReauthWindowPerSession); err != nil {
+		return AuthResult{}, ErrServiceUnavailable
+	} else if !peekRes.Allowed {
+		_ = s.store.RevokeSession(ctx, active.ID, now)
+		s.recordAudit(ctx, "user", active.UserID, "auth.reauth.session_revoked", "session", active.ID, "denied", meta, nil)
+		return AuthResult{}, ErrSessionExpired
+	}
+
 	if plainPassword == "" || len(plainPassword) > password.MaxPasswordBytes {
 		return AuthResult{}, &ValidationError{Field: "password", Message: "is required"}
 	}
@@ -274,14 +287,12 @@ func (s *Service) Reauth(ctx context.Context, active ActiveSession, plainPasswor
 		if errors.Is(err, password.ErrHasherBusy) {
 			return AuthResult{}, ErrServiceUnavailable
 		}
-		return AuthResult{}, ErrInvalidCredentials
+		return AuthResult{}, s.handleReauthFailure(ctx, active, sessKey, now, meta, ErrInvalidCredentials)
 	}
 	if !ok || user.Status != "active" {
-		s.recordAudit(ctx, "user", active.UserID, "auth.reauth", "session", active.ID, "failure", meta, nil)
-		return AuthResult{}, ErrInvalidCredentials
+		return AuthResult{}, s.handleReauthFailure(ctx, active, sessKey, now, meta, ErrInvalidCredentials)
 	}
 
-	now := s.clk.Now().UTC()
 	var matchedStep *int64
 	if user.MFAEnabled {
 		if s.encrypter == nil {
@@ -295,8 +306,7 @@ func (s *Service) Reauth(ctx context.Context, active ActiveSession, plainPasswor
 
 		step, ok := totp.Verify(rawSecret, totpCode, now, user.MFALastUsedStep)
 		if !ok {
-			s.recordAudit(ctx, "user", active.UserID, "auth.reauth", "session", active.ID, "failure", meta, nil)
-			return AuthResult{}, ErrInvalidMFACode
+			return AuthResult{}, s.handleReauthFailure(ctx, active, sessKey, now, meta, ErrInvalidMFACode)
 		}
 		matchedStep = &step
 	}
@@ -312,8 +322,7 @@ func (s *Service) Reauth(ctx context.Context, active ActiveSession, plainPasswor
 
 	if err := s.store.ReauthRotate(ctx, user.ID, active.ID, matchedStep, nextSess, now); err != nil {
 		if errors.Is(err, ErrInvalidMFACode) {
-			s.recordAudit(ctx, "user", active.UserID, "auth.reauth", "session", active.ID, "failure", meta, nil)
-			return AuthResult{}, ErrInvalidMFACode
+			return AuthResult{}, s.handleReauthFailure(ctx, active, sessKey, now, meta, ErrInvalidMFACode)
 		}
 		if errors.Is(err, ErrSessionExpired) {
 			return AuthResult{}, ErrSessionExpired
@@ -321,6 +330,7 @@ func (s *Service) Reauth(ctx context.Context, active ActiveSession, plainPasswor
 		return AuthResult{}, fmt.Errorf("reauth rotate session: %w", err)
 	}
 
+	_ = s.limiter.Reset(ctx, sessKey)
 	s.recordAudit(ctx, "user", active.UserID, "auth.reauth", "session", nextSess.ID, "success", meta, nil)
 	return AuthResult{
 		UserID:       user.ID,
@@ -332,6 +342,20 @@ func (s *Service) Reauth(ctx context.Context, active ActiveSession, plainPasswor
 		ExpiresAt:    nextSess.ExpiresAt,
 		Now:          now,
 	}, nil
+}
+
+func (s *Service) handleReauthFailure(ctx context.Context, active ActiveSession, sessKey string, now time.Time, meta RequestMeta, baseErr error) error {
+	s.recordAudit(ctx, "user", active.UserID, "auth.reauth", "session", active.ID, "failure", meta, nil)
+	res, err := s.limiter.Allow(ctx, sessKey, ReauthLimitPerSession, ReauthWindowPerSession)
+	if err != nil {
+		return ErrServiceUnavailable
+	}
+	if !res.Allowed || res.Remaining == 0 {
+		_ = s.store.RevokeSession(ctx, active.ID, now)
+		s.recordAudit(ctx, "user", active.UserID, "auth.reauth.session_revoked", "session", active.ID, "denied", meta, nil)
+		return ErrSessionExpired
+	}
+	return baseErr
 }
 
 func (s *Service) buildFullSession(userID string, now time.Time, meta RequestMeta) (SessionRecord, string, string, error) {
