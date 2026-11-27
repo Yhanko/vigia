@@ -10,6 +10,7 @@ import (
 	"net/netip"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/Yhanko/vigia/internal/modules/identity/internal/policy"
 	"github.com/Yhanko/vigia/internal/modules/identity/password"
@@ -560,12 +561,30 @@ func truncateIPPrefix(raw string) *string {
 }
 
 func truncateUserAgent(raw string) *string {
-	s := strings.TrimSpace(raw)
+	// Sanitize invalid UTF-8 and NUL bytes (rejected by PostgreSQL text columns)
+	// and truncate on a rune boundary so UTF-8 is never split mid-sequence (CTO #24).
+	s := strings.ReplaceAll(strings.ToValidUTF8(strings.TrimSpace(raw), ""), "\x00", "")
 	if s == "" {
 		return nil
 	}
 	if len(s) > maxStoredUserAgentLen {
-		s = s[:maxStoredUserAgentLen]
+		cut := 0
+		for i := range s {
+			if i > maxStoredUserAgentLen {
+				break
+			}
+			cut = i
+		}
+		if cut == 0 {
+			_, size := utf8.DecodeRuneInString(s)
+			if size <= maxStoredUserAgentLen {
+				cut = size
+			}
+		}
+		s = s[:cut]
+	}
+	if s == "" {
+		return nil
 	}
 	return &s
 }
