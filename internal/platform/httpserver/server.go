@@ -39,6 +39,9 @@ type Options struct {
 	APIRateLimit func(http.Handler) http.Handler
 	// APIAuth optionally wraps the /api/v1 route group with session and CSRF middleware.
 	APIAuth func(http.Handler) http.Handler
+	// APIIdempotency optionally wraps the /api/v1 route group AFTER APIAuth to
+	// enforce principal-scoped Idempotency-Key semantics on creation POSTs (CTO #32).
+	APIIdempotency func(http.Handler) http.Handler
 	// APIServer provides the composed OpenAPI ServerInterface mounted under /api/v1
 	// via api.HandlerWithOptions (CTO #6, #18). Domain handlers live in internal/modules/*.
 	APIServer api.ServerInterface
@@ -83,6 +86,9 @@ func NewHandler(opts Options) http.Handler {
 			}
 			if opts.APIAuth != nil {
 				v1.Use(opts.APIAuth)
+			}
+			if opts.APIIdempotency != nil {
+				v1.Use(opts.APIIdempotency)
 			}
 			api.HandlerWithOptions(opts.APIServer, api.ChiServerOptions{
 				BaseRouter: v1,

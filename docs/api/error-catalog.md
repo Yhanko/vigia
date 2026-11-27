@@ -62,6 +62,7 @@ Todas as respostas de erro sob `/api/v1/*` usam exclusivamente este envelope JSO
 | `METHOD_NOT_ALLOWED` | `405` | Método HTTP não suportado na rota |
 | `CONFLICT` | `409` | Violação de unicidade (ex.: slug de organização/projecto já existente, membro já adicionado) |
 | `IDEMPOTENCY_CONFLICT` | `409` | Mesma `Idempotency-Key` reutilizada com payload diferente |
+| `IDEMPOTENCY_IN_PROGRESS` | `409` | Pedido concorrente com a mesma `Idempotency-Key` ainda em execução |
 | `PAYLOAD_TOO_LARGE` | `413` | Body acima de `API_MAX_BODY_BYTES` / `INGEST_MAX_PAYLOAD_BYTES` ou limite descomprimido |
 | `UNSUPPORTED_MEDIA_TYPE` | `415` | `Content-Type` ausente ou diferente de `application/json` |
 

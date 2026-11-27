@@ -198,13 +198,14 @@ func runAPI() error {
 	}
 
 	var (
-		idHandler   *identity.Handler
-		orgHandler  *organizations.Handler
-		audHandler  *audit.Handler
-		projHandler *projects.Handler
-		credHandler *credentials.Handler
-		apiAuthMW   func(http.Handler) http.Handler
-		credSvc     *credentials.Service
+		idHandler        *identity.Handler
+		orgHandler       *organizations.Handler
+		audHandler       *audit.Handler
+		projHandler      *projects.Handler
+		credHandler      *credentials.Handler
+		apiAuthMW        func(http.Handler) http.Handler
+		apiIdempotencyMW func(http.Handler) http.Handler
+		credSvc          *credentials.Service
 	)
 	allowedOrigins := buildAllowedOrigins(cfg)
 
@@ -257,6 +258,24 @@ func runAPI() error {
 			return err
 		}
 		apiAuthMW = identity.SessionAndCSRFMiddleware(idSvc, idSessions, allowedOrigins)
+		if rdb != nil {
+			idemStore, err := queue.NewRedisIdempotencyStore(rdb)
+			if err != nil {
+				return err
+			}
+			apiIdempotencyMW = httpserver.IdempotencyMiddleware(httpserver.IdempotencyOptions{
+				Store: idemStore,
+				Principal: func(r *http.Request) (string, bool) {
+					if active, ok := identity.ActiveSessionFromContext(r.Context()); ok {
+						return "user:" + active.UserID, true
+					}
+					if cred, ok := credentials.CredentialFromContext(r.Context()); ok {
+						return "cred:" + cred.ID, true
+					}
+					return "", false
+				},
+			})
+		}
 
 		var (
 			credInvalidator    projects.CredentialCacheInvalidator
@@ -353,16 +372,17 @@ func runAPI() error {
 	}
 
 	srv := httpserver.New(httpserver.Options{
-		Port:         cfg.Port,
-		Version:      version,
-		Commit:       commit,
-		Logger:       logger,
-		CORSOrigins:  cfg.CORSOrigins,
-		MaxBodyBytes: cfg.APIMaxBodyBytes,
-		HSTS:         cfg.AppEnv == "production",
-		APIRateLimit: apiRateLimitMW,
-		APIAuth:      apiAuthMW,
-		APIServer:    composedAPI,
+		Port:           cfg.Port,
+		Version:        version,
+		Commit:         commit,
+		Logger:         logger,
+		CORSOrigins:    cfg.CORSOrigins,
+		MaxBodyBytes:   cfg.APIMaxBodyBytes,
+		HSTS:           cfg.AppEnv == "production",
+		APIRateLimit:   apiRateLimitMW,
+		APIAuth:        apiAuthMW,
+		APIIdempotency: apiIdempotencyMW,
+		APIServer:      composedAPI,
 	})
 	adminSrv := httpserver.NewAdmin(httpserver.AdminOptions{
 		Port:            cfg.AdminPort,

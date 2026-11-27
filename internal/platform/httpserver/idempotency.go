@@ -18,44 +18,124 @@ const (
 	IdempotencyKeyHeader = "Idempotency-Key"
 	maxIdempotencyKeyLen = 128
 	defaultIdempotencyTT = 24 * time.Hour
+	defaultLockTTL       = 30 * time.Second
 )
 
-// ErrIdempotencyMiss is returned by IdempotencyStore.Get when no entry exists.
+// ErrIdempotencyMiss is returned when no entry exists for a key.
 var ErrIdempotencyMiss = errors.New("httpserver: idempotency key not found")
 
 // IdempotencyRecord caches the body hash and HTTP response for a POST request.
 type IdempotencyRecord struct {
-	BodyHash string `json:"body_hash"`
-	Status   int    `json:"status"`
-	Body     []byte `json:"body"`
+	InProgress bool   `json:"in_progress,omitempty"`
+	BodyHash   string `json:"body_hash"`
+	Status     int    `json:"status,omitempty"`
+	Body       []byte `json:"body,omitempty"`
 }
 
-// IdempotencyStore persists IdempotencyRecords with TTL (e.g. Redis).
+// IdempotencyStore persists IdempotencyRecords with atomic in-progress locking (e.g. Redis).
 type IdempotencyStore interface {
-	Get(ctx context.Context, key string) (IdempotencyRecord, error)
-	Set(ctx context.Context, key string, rec IdempotencyRecord, ttl time.Duration) error
+	// Acquire atomically looks up key or reserves it with an in-progress marker (SET NX).
+	// If an entry already exists, returns (rec, false, nil) when completed or (nil, true, nil) when in-progress.
+	// If reserved cleanly for this caller, returns (nil, false, nil).
+	Acquire(ctx context.Context, key, bodyHash string, lockTTL time.Duration) (existing *IdempotencyRecord, inProgress bool, err error)
+	// Complete replaces the in-progress marker with the final cached response for ttl.
+	Complete(ctx context.Context, key string, rec IdempotencyRecord, ttl time.Duration) error
+	// Release deletes the in-progress marker when a handler fails so the caller can retry.
+	Release(ctx context.Context, key string) error
 }
 
-// IdempotencyMiddleware enforces Idempotency-Key semantics on POST requests:
-//   - same key + same body hash → replays cached status & JSON response;
-//   - same key + different body hash → 409 IDEMPOTENCY_CONFLICT.
-func IdempotencyMiddleware(store IdempotencyStore, ttl time.Duration) func(http.Handler) http.Handler {
+// IdempotencyOptions configures principal-scoped Idempotency-Key enforcement (CTO #32).
+type IdempotencyOptions struct {
+	Store IdempotencyStore
+	// Principal extracts the authenticated caller scope ("user:<id>" or "cred:<id>").
+	// If nil or returns ok=false, idempotency caching is skipped (never share cache across anonymous callers).
+	Principal func(r *http.Request) (string, bool)
+	// AllowRoute optionally restricts which POST routes participate in idempotency.
+	// Defaults to IsIdempotentCreationRoute (organizations, invitations, teams, projects, environments),
+	// explicitly excluding all /auth/* and /credentials/* secret-bearing routes.
+	AllowRoute func(r *http.Request) bool
+	TTL        time.Duration
+	LockTTL    time.Duration
+}
+
+// IsIdempotentCreationRoute returns true ONLY for safe creation POST endpoints
+// (organizations, invitations, teams, projects, environments) and ALWAYS false
+// for /auth/* and /credentials/* routes that may return secrets (CTO #32).
+func IsIdempotentCreationRoute(r *http.Request) bool {
+	if r.Method != http.MethodPost {
+		return false
+	}
+	p := r.URL.Path
+	// Explicit denylist for secret-bearing paths (defense in depth).
+	if strings.HasPrefix(p, "/api/v1/auth/") || strings.Contains(p, "/credentials") {
+		return false
+	}
+	if p == "/api/v1/organizations" {
+		return true
+	}
+	if !strings.HasPrefix(p, "/api/v1/organizations/") {
+		return false
+	}
+	// /api/v1/organizations/{orgId}/{invitations|teams|projects}
+	// /api/v1/organizations/{orgId}/projects/{projectId}/environments
+	parts := strings.Split(strings.TrimPrefix(p, "/api/v1/organizations/"), "/")
+	if len(parts) == 2 {
+		return parts[1] == "invitations" || parts[1] == "teams" || parts[1] == "projects"
+	}
+	if len(parts) == 4 && parts[1] == "projects" && parts[3] == "environments" {
+		return true
+	}
+	return false
+}
+
+// IdempotencyMiddleware enforces principal-scoped Idempotency-Key semantics on
+// allowed POST creation routes AFTER authentication (CTO #32):
+//   - Cache key: idem:<principal>:<method>:<path>:<sha256(Idempotency-Key)>
+//   - Concurrent in-flight request -> 409 IDEMPOTENCY_IN_PROGRESS
+//   - Same principal + same key + same body -> replays cached response with Idempotency-Replayed: true
+//   - Same principal + same key + different body -> 409 IDEMPOTENCY_CONFLICT
+//   - Different principal + same key -> independent cache entry (zero cross-user leakage)
+//   - Secret-bearing routes (/auth/*, /credentials*) -> never cached.
+func IdempotencyMiddleware(opts IdempotencyOptions) func(http.Handler) http.Handler {
+	ttl := opts.TTL
 	if ttl <= 0 {
 		ttl = defaultIdempotencyTT
 	}
+	lockTTL := opts.LockTTL
+	if lockTTL <= 0 {
+		lockTTL = defaultLockTTL
+	}
+	allowRoute := opts.AllowRoute
+	if allowRoute == nil {
+		allowRoute = IsIdempotentCreationRoute
+	}
+
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if store == nil || r.Method != http.MethodPost {
+			if opts.Store == nil || opts.Principal == nil || !allowRoute(r) {
 				next.ServeHTTP(w, r)
 				return
 			}
-			key := strings.TrimSpace(r.Header.Get(IdempotencyKeyHeader))
-			if key == "" {
+			// Never cache secret-bearing paths even if a custom AllowRoute is supplied.
+			if strings.HasPrefix(r.URL.Path, "/api/v1/auth/") || strings.Contains(r.URL.Path, "/credentials") {
 				next.ServeHTTP(w, r)
 				return
 			}
-			if len(key) > maxIdempotencyKeyLen || strings.ContainsAny(key, "\r\n\x00 ") {
+
+			rawKey := strings.TrimSpace(r.Header.Get(IdempotencyKeyHeader))
+			if rawKey == "" {
+				next.ServeHTTP(w, r)
+				return
+			}
+			if len(rawKey) > maxIdempotencyKeyLen || strings.ContainsAny(rawKey, "\r\n\x00 ") {
 				WriteError(w, r, http.StatusBadRequest, "VALIDATION_FAILED", "Invalid Idempotency-Key header.")
+				return
+			}
+
+			principal, ok := opts.Principal(r)
+			if !ok || strings.TrimSpace(principal) == "" {
+				// Unauthenticated callers never participate in idempotency cache.
+				next.ServeHTTP(w, r)
 				return
 			}
 
@@ -71,31 +151,51 @@ func IdempotencyMiddleware(store IdempotencyStore, ttl time.Duration) func(http.
 			}
 			r.Body = io.NopCloser(bytes.NewReader(bodyBytes))
 
-			sum := sha256.Sum256(bodyBytes)
-			bodyHash := hex.EncodeToString(sum[:])
-			cacheKey := "idem:" + r.URL.Path + ":" + key
+			bodySum := sha256.Sum256(bodyBytes)
+			bodyHash := hex.EncodeToString(bodySum[:])
+			keySum := sha256.Sum256([]byte(rawKey))
+			cacheKey := "idem:" + principal + ":" + r.Method + ":" + r.URL.Path + ":" + hex.EncodeToString(keySum[:])
 
-			if cached, err := store.Get(r.Context(), cacheKey); err == nil {
-				if cached.BodyHash != bodyHash {
+			existing, inProgress, err := opts.Store.Acquire(r.Context(), cacheKey, bodyHash, lockTTL)
+			if err != nil {
+				// Fail open on transient store errors rather than blocking writes.
+				next.ServeHTTP(w, r)
+				return
+			}
+			if inProgress {
+				WriteError(w, r, http.StatusConflict, "IDEMPOTENCY_IN_PROGRESS", "A request with this Idempotency-Key is currently in progress.")
+				return
+			}
+			if existing != nil {
+				if existing.BodyHash != bodyHash {
 					WriteError(w, r, http.StatusConflict, "IDEMPOTENCY_CONFLICT", "Idempotency-Key was already used with a different request payload.")
 					return
 				}
 				w.Header().Set("Content-Type", "application/json; charset=utf-8")
 				w.Header().Set("Idempotency-Replayed", "true")
-				w.WriteHeader(cached.Status)
-				_, _ = w.Write(cached.Body)
+				w.WriteHeader(existing.Status)
+				_, _ = w.Write(existing.Body)
 				return
 			}
 
 			capW := &responseCaptureWriter{ResponseWriter: w, status: http.StatusOK}
+			completed := false
+			defer func() {
+				if !completed {
+					_ = opts.Store.Release(r.Context(), cacheKey)
+				}
+			}()
+
 			next.ServeHTTP(capW, r)
 
 			if capW.status >= 200 && capW.status < 300 {
-				_ = store.Set(r.Context(), cacheKey, IdempotencyRecord{
+				if err := opts.Store.Complete(r.Context(), cacheKey, IdempotencyRecord{
 					BodyHash: bodyHash,
 					Status:   capW.status,
 					Body:     capW.buf.Bytes(),
-				}, ttl)
+				}, ttl); err == nil {
+					completed = true
+				}
 			}
 		})
 	}
