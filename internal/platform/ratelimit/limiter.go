@@ -31,41 +31,57 @@ type Result struct {
 	RetryAfter time.Duration
 }
 
-// Limiter evaluates rate-limit windows for arbitrary keys.
+// Limiter evaluates sliding-window rate limits for arbitrary keys.
 type Limiter interface {
+	// Allow checks the limit and records the attempt if allowed.
 	Allow(ctx context.Context, key string, limit int, window time.Duration) (Result, error)
+	// Peek checks whether key is currently under limit without recording an attempt.
+	Peek(ctx context.Context, key string, limit int, window time.Duration) (Result, error)
+	// Reset clears all recorded attempts for key (e.g. after a successful login).
+	Reset(ctx context.Context, key string) error
 }
 
-// slidingWindowScript atomically removes expired entries, checks the current
-// count, and (if allowed) records the new request in a Redis sorted set.
+// slidingWindowScript atomically handles allow, peek, and reset operations on
+// a Redis sorted-set sliding window (CTO #23).
 //
 // KEYS[1] = sorted set key
-// ARGV[1] = now (unix ms)
-// ARGV[2] = window (ms)
-// ARGV[3] = limit (int)
-// ARGV[4] = unique member id
+// ARGV[1] = mode ("allow" | "peek" | "reset")
+// ARGV[2] = now (unix ms)
+// ARGV[3] = window (ms)
+// ARGV[4] = limit (int)
+// ARGV[5] = unique member id (used for "allow")
 //
 // Returns: {allowed (0|1), remaining, reset_after_ms, retry_after_ms}
 var slidingWindowScript = redis.NewScript(`
 local key = KEYS[1]
-local now = tonumber(ARGV[1])
-local window = tonumber(ARGV[2])
-local limit = tonumber(ARGV[3])
-local member = ARGV[4]
+local mode = ARGV[1]
+
+if mode == 'reset' then
+	redis.call('DEL', key)
+	return {1, 0, 0, 0}
+end
+
+local now = tonumber(ARGV[2])
+local window = tonumber(ARGV[3])
+local limit = tonumber(ARGV[4])
+local member = ARGV[5]
 
 local cutoff = now - window
 redis.call('ZREMRANGEBYSCORE', key, '-inf', cutoff)
 
 local count = redis.call('ZCARD', key)
 if count < limit then
-	redis.call('ZADD', key, now, member)
-	redis.call('PEXPIRE', key, window)
+	if mode == 'allow' then
+		redis.call('ZADD', key, now, member)
+		redis.call('PEXPIRE', key, window)
+		count = count + 1
+	end
 	local oldest = redis.call('ZRANGE', key, 0, 0, 'WITHSCORES')
 	local reset_ms = window
 	if #oldest >= 2 then
 		reset_ms = math.max(1, (tonumber(oldest[2]) + window) - now)
 	end
-	return {1, limit - count - 1, reset_ms, 0}
+	return {1, math.max(0, limit - count), reset_ms, 0}
 end
 
 local oldest = redis.call('ZRANGE', key, 0, 0, 'WITHSCORES')
@@ -98,8 +114,30 @@ func NewRedisLimiter(client redis.UniversalClient, clk clock.Clock) (*RedisLimit
 	}, nil
 }
 
-// Allow evaluates whether a request for key is within limit over window.
+// Allow evaluates whether a request for key is within limit over window and
+// records the attempt when allowed.
 func (l *RedisLimiter) Allow(ctx context.Context, key string, limit int, window time.Duration) (Result, error) {
+	return l.eval(ctx, "allow", key, limit, window)
+}
+
+// Peek evaluates whether key is currently within limit over window without
+// recording an attempt.
+func (l *RedisLimiter) Peek(ctx context.Context, key string, limit int, window time.Duration) (Result, error) {
+	return l.eval(ctx, "peek", key, limit, window)
+}
+
+// Reset removes all recorded attempts for key.
+func (l *RedisLimiter) Reset(ctx context.Context, key string) error {
+	if key == "" {
+		return errors.New("ratelimit: key is required")
+	}
+	if _, err := slidingWindowScript.Run(ctx, l.client, []string{keyPrefix + key}, "reset", 0, 0, 0, "").Int64Slice(); err != nil {
+		return fmt.Errorf("ratelimit: reset lua: %w", err)
+	}
+	return nil
+}
+
+func (l *RedisLimiter) eval(ctx context.Context, mode, key string, limit int, window time.Duration) (Result, error) {
 	if key == "" || limit <= 0 || window <= 0 {
 		return Result{}, errors.New("ratelimit: key, positive limit, and positive window are required")
 	}
@@ -111,7 +149,7 @@ func (l *RedisLimiter) Allow(ctx context.Context, key string, limit int, window 
 	}
 	member := strconv.FormatInt(nowMs, 10) + ":" + strconv.FormatUint(l.seq.Add(1), 10)
 
-	raw, err := slidingWindowScript.Run(ctx, l.client, []string{keyPrefix + key}, nowMs, windowMs, limit, member).Int64Slice()
+	raw, err := slidingWindowScript.Run(ctx, l.client, []string{keyPrefix + key}, mode, nowMs, windowMs, limit, member).Int64Slice()
 	if err != nil {
 		return Result{}, fmt.Errorf("ratelimit: eval lua: %w", err)
 	}

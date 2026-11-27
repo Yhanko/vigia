@@ -25,6 +25,14 @@ func (f fakeLimiter) Allow(_ context.Context, _ string, _ int, _ time.Duration) 
 	return f.res, f.err
 }
 
+func (f fakeLimiter) Peek(_ context.Context, _ string, _ int, _ time.Duration) (Result, error) {
+	return f.res, f.err
+}
+
+func (f fakeLimiter) Reset(_ context.Context, _ string) error {
+	return f.err
+}
+
 func TestHashIdentifierNoPIIAndDeterministic(t *testing.T) {
 	secret := make([]byte, 32)
 	if _, err := rand.Read(secret); err != nil {

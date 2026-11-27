@@ -98,6 +98,28 @@ func TestRedisLimiterAndStatus429Integration(t *testing.T) {
 		t.Fatalf("after window slide: got (%+v, %v), want allowed", afterWindow, err)
 	}
 
+	// CTO #23: Peek checks without incrementing; Reset clears recorded entries.
+	peek1, err := limiter.Peek(ctx, "test:peek", 1, time.Minute)
+	if err != nil || !peek1.Allowed || peek1.Remaining != 1 {
+		t.Fatalf("Peek(empty) = (%+v, %v), want allowed remaining=1", peek1, err)
+	}
+	peek2, err := limiter.Peek(ctx, "test:peek", 1, time.Minute)
+	if err != nil || !peek2.Allowed || peek2.Remaining != 1 {
+		t.Fatalf("second Peek must not consume quota: (%+v, %v)", peek2, err)
+	}
+	if res, err := limiter.Allow(ctx, "test:peek", 1, time.Minute); err != nil || !res.Allowed {
+		t.Fatalf("Allow after Peek = (%+v, %v), want allowed", res, err)
+	}
+	if res, err := limiter.Peek(ctx, "test:peek", 1, time.Minute); err != nil || res.Allowed {
+		t.Fatalf("Peek after full = (%+v, %v), want blocked", res, err)
+	}
+	if err := limiter.Reset(ctx, "test:peek"); err != nil {
+		t.Fatalf("Reset: %v", err)
+	}
+	if res, err := limiter.Peek(ctx, "test:peek", 1, time.Minute); err != nil || !res.Allowed {
+		t.Fatalf("Peek after Reset = (%+v, %v), want allowed", res, err)
+	}
+
 	// CTO #5: GET /api/v1/status above limit returns 429 RATE_LIMIT_EXCEEDED + headers.
 	handler := httpserver.NewHandler(httpserver.Options{
 		Version:   "test",

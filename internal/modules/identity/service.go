@@ -112,6 +112,8 @@ type PasswordHasher interface {
 // RateLimiter is the consumer-defined interface for sliding-window rate limiting.
 type RateLimiter interface {
 	Allow(ctx context.Context, key string, limit int, window time.Duration) (ratelimit.Result, error)
+	Peek(ctx context.Context, key string, limit int, window time.Duration) (ratelimit.Result, error)
+	Reset(ctx context.Context, key string) error
 }
 
 // ServiceConfig holds the dependencies for the identity domain service.
@@ -262,12 +264,13 @@ func (s *Service) Login(ctx context.Context, in LoginInput) (AuthResult, error) 
 		return AuthResult{}, &ValidationError{Field: "password", Message: "is required"}
 	}
 
-	// ADR-005 §3.1: rate-limit by IP and by (account+IP) BEFORE any Argon2id work.
+	// ADR-005 §3.1 & CTO #23: rate-limit by IP (all attempts) and Peek
+	// (account+IP) failure lockout BEFORE any Argon2id work.
 	if err := s.checkRateLimit(ctx, "auth:login:ip:"+in.Meta.ClientIP, LoginLimitPerIP, LoginWindow); err != nil {
 		return AuthResult{}, err
 	}
 	acctKey := "auth:login:acct_ip:" + ratelimit.HashIdentifier(s.rateLimitSecret, email) + ":" + in.Meta.ClientIP
-	if err := s.checkRateLimit(ctx, acctKey, LoginLimitPerAccountIP, LoginWindow); err != nil {
+	if err := s.peekRateLimit(ctx, acctKey, LoginLimitPerAccountIP, LoginWindow); err != nil {
 		return AuthResult{}, err
 	}
 
@@ -280,6 +283,7 @@ func (s *Service) Login(ctx context.Context, in LoginInput) (AuthResult, error) 
 				}
 				return AuthResult{}, fmt.Errorf("login dummy verify: %w", dErr)
 			}
+			s.recordLoginFailure(ctx, acctKey)
 			s.recordAudit(ctx, "system", "", "auth.login", "session", "", "failure", in.Meta, nil)
 			return AuthResult{}, ErrInvalidCredentials
 		}
@@ -294,14 +298,21 @@ func (s *Service) Login(ctx context.Context, in LoginInput) (AuthResult, error) 
 			return AuthResult{}, ErrServiceUnavailable
 		}
 		if errors.Is(err, password.ErrPasswordTooLong) || errors.Is(err, password.ErrInvalidHash) {
+			s.recordLoginFailure(ctx, acctKey)
 			s.recordAudit(ctx, "user", user.ID, "auth.login", "session", "", "failure", in.Meta, nil)
 			return AuthResult{}, ErrInvalidCredentials
 		}
 		return AuthResult{}, fmt.Errorf("login verify password: %w", err)
 	}
 	if !ok || user.Status != "active" {
+		s.recordLoginFailure(ctx, acctKey)
 		s.recordAudit(ctx, "user", user.ID, "auth.login", "session", "", "failure", in.Meta, nil)
 		return AuthResult{}, ErrInvalidCredentials
+	}
+
+	// Successful password verification resets the (account+IP) failure lockout counter (CTO #23).
+	if rErr := s.limiter.Reset(ctx, acctKey); rErr != nil && s.logger != nil {
+		s.logger.Warn("failed to reset login failure counter", "error", rErr)
 	}
 
 	// CTO #20: stop here when MFA is enabled; intermediate MFA flow comes before D8.
@@ -465,6 +476,26 @@ func (s *Service) checkRateLimit(ctx context.Context, key string, limit int, win
 		return &RateLimitError{Result: res}
 	}
 	return nil
+}
+
+func (s *Service) peekRateLimit(ctx context.Context, key string, limit int, window time.Duration) error {
+	res, err := s.limiter.Peek(ctx, key, limit, window)
+	if err != nil {
+		if s.logger != nil {
+			s.logger.Error("auth rate limiter unavailable; failing closed", "error", err)
+		}
+		return ErrServiceUnavailable
+	}
+	if !res.Allowed {
+		return &RateLimitError{Result: res}
+	}
+	return nil
+}
+
+func (s *Service) recordLoginFailure(ctx context.Context, acctKey string) {
+	if _, err := s.limiter.Allow(ctx, acctKey, LoginLimitPerAccountIP, LoginWindow); err != nil && s.logger != nil {
+		s.logger.Warn("failed to record login failure in rate limiter", "error", err)
+	}
 }
 
 func (s *Service) recordAudit(ctx context.Context, actorType, actorID, action, resType, resID, result string, meta RequestMeta, changes []byte) {

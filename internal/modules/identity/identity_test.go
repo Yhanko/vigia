@@ -178,8 +178,31 @@ func (l *memLimiter) Allow(_ context.Context, key string, limit int, window time
 	if l.forceEr != nil {
 		return ratelimit.Result{}, l.forceEr
 	}
+	if l.counts[key] >= limit {
+		return ratelimit.Result{
+			Allowed:    false,
+			Limit:      limit,
+			Remaining:  0,
+			ResetAfter: window,
+			RetryAfter: 60 * time.Second,
+		}, nil
+	}
 	l.counts[key]++
-	if l.counts[key] > limit {
+	return ratelimit.Result{
+		Allowed:    true,
+		Limit:      limit,
+		Remaining:  limit - l.counts[key],
+		ResetAfter: window,
+	}, nil
+}
+
+func (l *memLimiter) Peek(_ context.Context, key string, limit int, window time.Duration) (ratelimit.Result, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.forceEr != nil {
+		return ratelimit.Result{}, l.forceEr
+	}
+	if l.counts[key] >= limit {
 		return ratelimit.Result{
 			Allowed:    false,
 			Limit:      limit,
@@ -194,6 +217,16 @@ func (l *memLimiter) Allow(_ context.Context, key string, limit int, window time
 		Remaining:  limit - l.counts[key],
 		ResetAfter: window,
 	}, nil
+}
+
+func (l *memLimiter) Reset(_ context.Context, key string) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.forceEr != nil {
+		return l.forceEr
+	}
+	delete(l.counts, key)
+	return nil
 }
 
 // spyHasher wraps a real password.Hasher to count Hash/Verify/DummyVerify calls.
@@ -464,6 +497,33 @@ func TestRateLimitBeforeHashAndAccountIPLockoutIsolation(t *testing.T) {
 		`{"email":"bob@example.com","password":"`+pass+`"}`, h.origin, "203.0.113.99", nil, "")
 	if victim.Code != http.StatusOK {
 		t.Fatalf("legitimate login from IP2 = %d (%s), want 200", victim.Code, victim.Body.String())
+	}
+
+	// CTO #23: 6 consecutive successful logins from same (account+IP) within IP limit MUST all succeed,
+	// and a successful login after 4 failures resets the failure counter.
+	for i := range 6 {
+		okRec := h.doJSON(http.MethodPost, "/api/v1/auth/login",
+			`{"email":"bob@example.com","password":"`+pass+`"}`, h.origin, "203.0.113.50", nil, "")
+		if okRec.Code != http.StatusOK {
+			t.Fatalf("successful login #%d = %d, want 200 (successes must not trip failure lockout)", i+1, okRec.Code)
+		}
+	}
+	for i := range 4 {
+		rec := h.doJSON(http.MethodPost, "/api/v1/auth/login",
+			`{"email":"bob@example.com","password":"wrong-password-1234"}`, h.origin, "203.0.113.60", nil, "")
+		if rec.Code != http.StatusUnauthorized {
+			t.Fatalf("failure #%d = %d, want 401", i+1, rec.Code)
+		}
+	}
+	// 5th attempt succeeds → resets counter.
+	if rec := h.doJSON(http.MethodPost, "/api/v1/auth/login",
+		`{"email":"bob@example.com","password":"`+pass+`"}`, h.origin, "203.0.113.60", nil, ""); rec.Code != http.StatusOK {
+		t.Fatalf("success after 4 failures = %d, want 200", rec.Code)
+	}
+	// Another failure after reset must return 401 (not 429).
+	if rec := h.doJSON(http.MethodPost, "/api/v1/auth/login",
+		`{"email":"bob@example.com","password":"wrong-password-1234"}`, h.origin, "203.0.113.60", nil, ""); rec.Code != http.StatusUnauthorized {
+		t.Fatalf("failure after reset = %d, want 401", rec.Code)
 	}
 }
 
