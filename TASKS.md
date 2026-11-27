@@ -260,7 +260,7 @@
   - [x] Limite de body da API de produto separado do de ingestão (`API_MAX_BODY_BYTES`, 256 KiB); a ingestão aplicará o seu no grupo de rotas (Fase 2)
   - [x] `DecodeJSON` estrito (Content-Type, `DisallowUnknownFields`, um único objecto, 413 em excesso, sem eco de campos) + testes
   - [x] Recoverer deixa passar `http.ErrAbortHandler` + teste
-  - [x] Paginação por cursor (`?limit=&cursor=`), middleware `Idempotency-Key`, headers `RateLimit-*`/`Retry-After` (§9.1)
+  - [~] Paginação por cursor (`?limit=&cursor=`), middleware `Idempotency-Key`, headers `RateLimit-*`/`Retry-After` (§9.1) *(paginação e rate limit feitos; `Idempotency-Key` não montado e com chave não ligada ao autor — pendente CTO 32)*
   - [x] `/health/ready` e futuro `/metrics` num **listener interno separado** (`ADMIN_PORT`) em vez da porta pública (§9.3)
 - [x] Configuração do `sqlc` (`sqlc.yaml` + `queries/`) (§5.1)
   - [x] `queries/identity.sql` com queries reais de `users`/`sessions` + `//go:generate` + `sqlc diff` no CI
@@ -323,9 +323,9 @@
 - [x] Testes de revogação imediata e de não-exposição de segredos em logs/respostas (§11.9)
 - [x] **E2E** (`tests/e2e/`): signup/login/MFA, organização + membros, projecto + ambiente, criar/revogar key, trilha de auditoria, negativo cross-tenant (§15.2 #1–4, #12–13)
 - [x] CI completo: `sqlc diff`, `oapi-codegen` sem diferenças, testes de integração, validação de migrations (up → down → up) (§16.1)
-- [x] Backup e restore encriptado do PostgreSQL testado (`pg_dump` + OpenSSL AES-256-CBC/PBKDF2) + runbook (`docs/runbooks/postgres-backup-restore.md`) (§16.6)
+- [~] Backup e restore encriptado do PostgreSQL testado (`pg_dump` + OpenSSL AES-256-CBC/PBKDF2) + runbook (`docs/runbooks/postgres-backup-restore.md`) (§16.6) *(o restore perde GRANTs e donos das funções — pendente CTO 31)*
 - [x] Decisão e aplicação de **RLS** como defesa em profundidade (`SET LOCAL app.organization_id` dentro de `WithTenantTx`) (§8.6, §11.1)
-- [ ] **Revisão de segurança antes de iniciar a ingestão** (§20.2 passo 12) — a primeira ingestão é a compatível Sentry da Fase 2 🧭
+- [~] **Revisão de segurança antes de iniciar a ingestão** (§20.2 passo 12) — a primeira ingestão é a compatível Sentry da Fase 2 🧭 *(feita pelo CTO em 2026-11-27: não aprovada; fechar pendentes 27–36 e o CTO revê de novo)*
 
 ---
 
