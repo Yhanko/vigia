@@ -104,6 +104,17 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/AuthSessionResponse"
+        "202":
+          description: Password verified; MFA verification required to complete login (sets short-lived pending session cookie)
+          headers:
+            Set-Cookie:
+              description: HttpOnly MFA-pending session cookie (10-minute TTL).
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MFAChallengeResponse"
         "400":
           description: Invalid JSON or validation error (`INVALID_JSON`, `VALIDATION_FAILED`)
           content:
@@ -326,6 +337,156 @@ paths:
                 $ref: "#/components/schemas/ErrorResponse"
         "403":
           description: Invalid or missing Origin (`CSRF_INVALID`)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+        default:
+          description: Error response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /auth/mfa/setup:
+    post:
+      operationId: authMFASetup
+      summary: Begin TOTP MFA enrollment (requires recent authentication)
+      security:
+        - sessionCookie: []
+      tags:
+        - auth
+      parameters:
+        - $ref: "#/components/parameters/CSRFTokenHeader"
+      responses:
+        "200":
+          description: TOTP provisioning secret and otpauth URI
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MFASetupResponse"
+        "401":
+          description: Unauthenticated, expired session, or re-authentication required (`UNAUTHENTICATED`, `SESSION_EXPIRED`, `REAUTH_REQUIRED`)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Invalid Origin or CSRF token (`CSRF_INVALID`)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        default:
+          description: Error response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /auth/mfa/verify:
+    post:
+      operationId: authMFAVerify
+      summary: Verify TOTP or recovery code (completes MFA setup or two-step login)
+      security:
+        - sessionCookie: []
+      tags:
+        - auth
+      parameters:
+        - $ref: "#/components/parameters/CSRFTokenHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MFAVerifyRequest"
+      responses:
+        "200":
+          description: MFA verified and session rotated (includes one-time recoveryCodes on initial activation)
+          headers:
+            Set-Cookie:
+              description: Rotated full HttpOnly session cookie.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MFAVerifyResponse"
+        "400":
+          description: Validation error (`INVALID_JSON`, `VALIDATION_FAILED`)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Invalid MFA code or expired/locked pending session (`INVALID_MFA_CODE`, `SESSION_EXPIRED`, `UNAUTHENTICATED`)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Invalid Origin or CSRF token (`CSRF_INVALID`)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        default:
+          description: Error response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /auth/reauth:
+    post:
+      operationId: authReauth
+      summary: Re-authenticate an active session for high-risk operations
+      security:
+        - sessionCookie: []
+      tags:
+        - auth
+      parameters:
+        - $ref: "#/components/parameters/CSRFTokenHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReauthRequest"
+      responses:
+        "200":
+          description: Re-authenticated and session rotated with fresh last_auth_at
+          headers:
+            Set-Cookie:
+              description: Rotated HttpOnly session cookie.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthSessionResponse"
+        "400":
+          description: Validation error (`INVALID_JSON`, `VALIDATION_FAILED`)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Invalid credentials, invalid MFA code, or expired session (`INVALID_CREDENTIALS`, `INVALID_MFA_CODE`, `SESSION_EXPIRED`)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Invalid Origin or CSRF token (`CSRF_INVALID`)
           content:
             application/json:
               schema:
@@ -596,3 +757,77 @@ components:
           format: password
           minLength: 12
           maxLength: 128
+
+    MFAChallengeResponse:
+      type: object
+      required:
+        - mfaRequired
+        - csrfToken
+        - expiresAt
+      properties:
+        mfaRequired:
+          type: boolean
+        csrfToken:
+          type: string
+        expiresAt:
+          type: string
+          format: date-time
+
+    MFASetupResponse:
+      type: object
+      required:
+        - secret
+        - otpauthUri
+      properties:
+        secret:
+          type: string
+        otpauthUri:
+          type: string
+
+    MFAVerifyRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        code:
+          type: string
+          minLength: 6
+          maxLength: 12
+        recoveryCode:
+          type: string
+          minLength: 16
+          maxLength: 32
+
+    MFAVerifyResponse:
+      type: object
+      required:
+        - user
+        - csrfToken
+        - expiresAt
+      properties:
+        user:
+          $ref: "#/components/schemas/AuthUser"
+        csrfToken:
+          type: string
+        expiresAt:
+          type: string
+          format: date-time
+        recoveryCodes:
+          type: array
+          items:
+            type: string
+
+    ReauthRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - password
+      properties:
+        password:
+          type: string
+          format: password
+          minLength: 1
+          maxLength: 128
+        code:
+          type: string
+          minLength: 6
+          maxLength: 12

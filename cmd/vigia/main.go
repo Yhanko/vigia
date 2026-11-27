@@ -100,12 +100,14 @@ func runAPI() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	var encrypter *crypto.EnvelopeEncrypter
 	if !cfg.EncryptionKey.IsEmpty() {
 		kr, err := crypto.ParseKeyring([]byte(cfg.EncryptionKey.Value()))
 		if err != nil {
 			return fmt.Errorf("load ENCRYPTION_KEY_FILE: %w", err)
 		}
-		if _, err := crypto.NewEnvelopeEncrypter(kr); err != nil {
+		encrypter, err = crypto.NewEnvelopeEncrypter(kr)
+		if err != nil {
 			return fmt.Errorf("init envelope encrypter: %w", err)
 		}
 		logger.Info("encryption keyring loaded", "active_key_id", kr.ActiveKeyID())
@@ -204,12 +206,17 @@ func runAPI() error {
 				return err
 			}
 		}
+		var idEnc identity.SecretEncrypter
+		if encrypter != nil {
+			idEnc = encrypter
+		}
 		idSvc, err := identity.NewService(identity.ServiceConfig{
 			Store:           idStore,
 			Hasher:          idHasher,
 			Sessions:        idSessions,
 			Limiter:         limiter,
 			RateLimitSecret: []byte(cfg.SessionSecret.Value()),
+			Encrypter:       idEnc,
 			Mailer:          mailSender,
 			AppURL:          cfg.AppURL,
 			Clock:           clk,
@@ -360,6 +367,33 @@ func (s compositeAPIServer) AuthPasswordReset(w http.ResponseWriter, r *http.Req
 		return
 	}
 	s.identity.AuthPasswordReset(w, r)
+}
+
+func (s compositeAPIServer) AuthMFASetup(w http.ResponseWriter, r *http.Request, params api.AuthMFASetupParams) {
+	if s.identity == nil {
+		w.Header().Set("Retry-After", "5")
+		httpserver.WriteError(w, r, http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "Authentication service unavailable.")
+		return
+	}
+	s.identity.AuthMFASetup(w, r, params)
+}
+
+func (s compositeAPIServer) AuthMFAVerify(w http.ResponseWriter, r *http.Request, params api.AuthMFAVerifyParams) {
+	if s.identity == nil {
+		w.Header().Set("Retry-After", "5")
+		httpserver.WriteError(w, r, http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "Authentication service unavailable.")
+		return
+	}
+	s.identity.AuthMFAVerify(w, r, params)
+}
+
+func (s compositeAPIServer) AuthReauth(w http.ResponseWriter, r *http.Request, params api.AuthReauthParams) {
+	if s.identity == nil {
+		w.Header().Set("Retry-After", "5")
+		httpserver.WriteError(w, r, http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "Authentication service unavailable.")
+		return
+	}
+	s.identity.AuthReauth(w, r, params)
 }
 
 func buildAllowedOrigins(cfg config.Config) []string {

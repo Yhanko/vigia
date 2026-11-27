@@ -265,16 +265,207 @@ func (s *PostgresStore) GetActiveSessionByTokenHash(ctx context.Context, tokenHa
 		return ActiveSession{}, fmt.Errorf("get active session: %w", err)
 	}
 	return ActiveSession{
-		ID:                row.ID.String(),
-		UserID:            row.UserID.String(),
-		CSRFTokenHash:     row.CsrfTokenHash,
-		LastAuthAt:        row.LastAuthAt.Time.UTC(),
-		ExpiresAt:         row.ExpiresAt.Time.UTC(),
-		AbsoluteExpiresAt: row.AbsoluteExpiresAt.Time.UTC(),
-		UserEmail:         row.UserEmail,
-		UserName:          row.UserName,
-		UserMFAEnabled:    row.UserMfaEnabled,
+		ID:                     row.ID.String(),
+		UserID:                 row.UserID.String(),
+		CSRFTokenHash:          row.CsrfTokenHash,
+		LastAuthAt:             row.LastAuthAt.Time.UTC(),
+		ExpiresAt:              row.ExpiresAt.Time.UTC(),
+		AbsoluteExpiresAt:      row.AbsoluteExpiresAt.Time.UTC(),
+		MFAPending:             false,
+		UserEmail:              row.UserEmail,
+		UserName:               row.UserName,
+		UserMFAEnabled:         row.UserMfaEnabled,
+		UserMFASecretEncrypted: row.UserMfaSecretEncrypted,
+		UserMFALastUsedStep:    row.UserMfaLastUsedStep,
 	}, nil
+}
+
+func (s *PostgresStore) GetPendingMFASessionByTokenHash(ctx context.Context, tokenHash []byte, now time.Time) (ActiveSession, error) {
+	row, err := s.q.GetPendingMFASessionByTokenHash(ctx, sqlcgen.GetPendingMFASessionByTokenHashParams{
+		TokenHash: tokenHash,
+		Now:       pgtype.Timestamptz{Time: now.UTC(), Valid: true},
+	})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ActiveSession{}, ErrNotFound
+		}
+		return ActiveSession{}, fmt.Errorf("get pending mfa session: %w", err)
+	}
+	return ActiveSession{
+		ID:                     row.ID.String(),
+		UserID:                 row.UserID.String(),
+		CSRFTokenHash:          row.CsrfTokenHash,
+		LastAuthAt:             row.LastAuthAt.Time.UTC(),
+		ExpiresAt:              row.ExpiresAt.Time.UTC(),
+		AbsoluteExpiresAt:      row.AbsoluteExpiresAt.Time.UTC(),
+		MFAPending:             true,
+		MFAFailedAttempts:      row.MfaFailedAttempts,
+		UserEmail:              row.UserEmail,
+		UserName:               row.UserName,
+		UserMFAEnabled:         row.UserMfaEnabled,
+		UserMFASecretEncrypted: row.UserMfaSecretEncrypted,
+		UserMFALastUsedStep:    row.UserMfaLastUsedStep,
+	}, nil
+}
+
+func (s *PostgresStore) SetUserPendingMFASecret(ctx context.Context, userID string, encrypted []byte, now time.Time) error {
+	uid, err := toPGUUID(userID)
+	if err != nil {
+		return err
+	}
+	return s.q.SetUserPendingMFASecret(ctx, sqlcgen.SetUserPendingMFASecretParams{
+		ID:                 uid,
+		MfaSecretEncrypted: encrypted,
+		UpdatedAt:          pgtype.Timestamptz{Time: now.UTC(), Valid: true},
+	})
+}
+
+func (s *PostgresStore) ActivateMFA(ctx context.Context, userID, oldSessionID string, step int64, recoveryTokens []UserTokenRecord, next SessionRecord, now time.Time) error {
+	uid, err := toPGUUID(userID)
+	if err != nil {
+		return err
+	}
+	oldSID, err := toPGUUID(oldSessionID)
+	if err != nil {
+		return err
+	}
+	nextParams, err := toCreateSessionParams(next)
+	if err != nil {
+		return err
+	}
+	ts := pgtype.Timestamptz{Time: now.UTC(), Valid: true}
+
+	return database.WithTx(ctx, s.pool, func(tx pgx.Tx) error {
+		qtx := s.q.WithTx(tx)
+		if err := qtx.EnableUserMFA(ctx, sqlcgen.EnableUserMFAParams{
+			ID:              uid,
+			MfaLastUsedStep: &step,
+			UpdatedAt:       ts,
+		}); err != nil {
+			return fmt.Errorf("enable user mfa: %w", err)
+		}
+		if err := qtx.InvalidateUserTokensByKind(ctx, sqlcgen.InvalidateUserTokensByKindParams{
+			UserID: uid,
+			Kind:   TokenKindMFARecovery,
+			UsedAt: ts,
+		}); err != nil {
+			return fmt.Errorf("invalidate old recovery codes: %w", err)
+		}
+		for _, rec := range recoveryTokens {
+			tid, err := toPGUUID(rec.ID)
+			if err != nil {
+				return err
+			}
+			if err := qtx.CreateUserToken(ctx, sqlcgen.CreateUserTokenParams{
+				ID:        tid,
+				UserID:    uid,
+				Kind:      TokenKindMFARecovery,
+				TokenHash: rec.TokenHash,
+			}); err != nil {
+				return fmt.Errorf("create recovery code: %w", err)
+			}
+		}
+		if _, err := qtx.RevokeAllUserSessions(ctx, sqlcgen.RevokeAllUserSessionsParams{
+			UserID:    uid,
+			RevokedAt: ts,
+		}); err != nil {
+			return fmt.Errorf("revoke all sessions on mfa activation: %w", err)
+		}
+		_ = oldSID
+		if _, err := qtx.CreateSession(ctx, nextParams); err != nil {
+			return fmt.Errorf("create rotated mfa session: %w", err)
+		}
+		return nil
+	})
+}
+
+func (s *PostgresStore) CompleteMFALogin(ctx context.Context, userID, pendingSessionID string, step *int64, recoveryTokenHash []byte, next SessionRecord, now time.Time) error {
+	uid, err := toPGUUID(userID)
+	if err != nil {
+		return err
+	}
+	pendID, err := toPGUUID(pendingSessionID)
+	if err != nil {
+		return err
+	}
+	nextParams, err := toCreateSessionParams(next)
+	if err != nil {
+		return err
+	}
+	ts := pgtype.Timestamptz{Time: now.UTC(), Valid: true}
+
+	return database.WithTx(ctx, s.pool, func(tx pgx.Tx) error {
+		qtx := s.q.WithTx(tx)
+		if len(recoveryTokenHash) > 0 {
+			tok, err := qtx.ConsumeUserToken(ctx, sqlcgen.ConsumeUserTokenParams{
+				TokenHash: recoveryTokenHash,
+				Kind:      TokenKindMFARecovery,
+				Now:       ts,
+			})
+			if err != nil {
+				if errors.Is(err, pgx.ErrNoRows) {
+					return ErrInvalidMFACode
+				}
+				return fmt.Errorf("consume recovery code: %w", err)
+			}
+			if tok.UserID != uid {
+				return ErrInvalidMFACode
+			}
+		}
+		affected, err := qtx.RevokeSession(ctx, sqlcgen.RevokeSessionParams{
+			ID:        pendID,
+			RevokedAt: ts,
+		})
+		if err != nil {
+			return fmt.Errorf("revoke pending mfa session: %w", err)
+		}
+		if affected == 0 {
+			return ErrSessionExpired
+		}
+		if step != nil {
+			if err := qtx.UpdateUserMFALastUsedStep(ctx, sqlcgen.UpdateUserMFALastUsedStepParams{
+				ID:              uid,
+				MfaLastUsedStep: step,
+				UpdatedAt:       ts,
+			}); err != nil {
+				return fmt.Errorf("update mfa last used step: %w", err)
+			}
+		}
+		if _, err := qtx.CreateSession(ctx, nextParams); err != nil {
+			return fmt.Errorf("create full session after mfa: %w", err)
+		}
+		return nil
+	})
+}
+
+func (s *PostgresStore) RecordPendingMFAFailure(ctx context.Context, pendingSessionID string, now time.Time) (bool, error) {
+	sid, err := toPGUUID(pendingSessionID)
+	if err != nil {
+		return false, err
+	}
+	row, err := s.q.IncrementSessionMFAFailedAttempts(ctx, sqlcgen.IncrementSessionMFAFailedAttemptsParams{
+		ID:  sid,
+		Now: pgtype.Timestamptz{Time: now.UTC(), Valid: true},
+	})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return true, nil
+		}
+		return false, fmt.Errorf("increment mfa failed attempts: %w", err)
+	}
+	return row.RevokedAt.Valid, nil
+}
+
+func (s *PostgresStore) UpdateUserMFALastUsedStep(ctx context.Context, userID string, step int64, now time.Time) error {
+	uid, err := toPGUUID(userID)
+	if err != nil {
+		return err
+	}
+	return s.q.UpdateUserMFALastUsedStep(ctx, sqlcgen.UpdateUserMFALastUsedStepParams{
+		ID:              uid,
+		MfaLastUsedStep: &step,
+		UpdatedAt:       pgtype.Timestamptz{Time: now.UTC(), Valid: true},
+	})
 }
 
 func (s *PostgresStore) RevokeSession(ctx context.Context, sessionID string, revokedAt time.Time) error {
@@ -372,6 +563,7 @@ func toCreateSessionParams(rec SessionRecord) (sqlcgen.CreateSessionParams, erro
 		AbsoluteExpiresAt: pgtype.Timestamptz{Time: rec.AbsoluteExpiresAt.UTC(), Valid: true},
 		IpPrefix:          rec.IPPrefix,
 		UserAgent:         rec.UserAgent,
+		MfaPending:        rec.MFAPending,
 	}, nil
 }
 
@@ -385,11 +577,13 @@ func toPGUUID(raw string) (pgtype.UUID, error) {
 
 func mapUser(row sqlcgen.User) User {
 	return User{
-		ID:           row.ID.String(),
-		Email:        row.Email,
-		Name:         row.Name,
-		PasswordHash: row.PasswordHash,
-		MFAEnabled:   row.MfaEnabled,
-		Status:       row.Status,
+		ID:                 row.ID.String(),
+		Email:              row.Email,
+		Name:               row.Name,
+		PasswordHash:       row.PasswordHash,
+		MFAEnabled:         row.MfaEnabled,
+		MFASecretEncrypted: row.MfaSecretEncrypted,
+		MFALastUsedStep:    row.MfaLastUsedStep,
+		Status:             row.Status,
 	}
 }

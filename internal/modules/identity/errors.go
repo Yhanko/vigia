@@ -22,6 +22,12 @@ var (
 	// with MFA enabled (CTO #20: intermediate MFA flow designed before D8).
 	ErrMFARequired = errors.New("identity: mfa required")
 
+	// ErrInvalidMFACode is returned when a TOTP or recovery code is invalid or replayed.
+	ErrInvalidMFACode = errors.New("identity: invalid mfa code")
+
+	// ErrReauthRequired is returned when a high-risk operation requires recent auth (<= 10m).
+	ErrReauthRequired = errors.New("identity: recent authentication required")
+
 	// ErrSessionExpired is returned when a session cookie is missing, expired,
 	// revoked, or belongs to a non-active user.
 	ErrSessionExpired = errors.New("identity: session expired")

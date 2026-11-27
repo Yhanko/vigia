@@ -50,10 +50,11 @@ INSERT INTO sessions (
     expires_at,
     absolute_expires_at,
     ip_prefix,
-    user_agent
+    user_agent,
+    mfa_pending
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-RETURNING id, user_id, token_hash, csrf_token_hash, last_auth_at, expires_at, absolute_expires_at, revoked_at, ip_prefix, user_agent, created_at
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+RETURNING id, user_id, token_hash, csrf_token_hash, last_auth_at, expires_at, absolute_expires_at, revoked_at, ip_prefix, user_agent, mfa_pending, mfa_failed_attempts, created_at
 `
 
 type CreateSessionParams struct {
@@ -66,9 +67,26 @@ type CreateSessionParams struct {
 	AbsoluteExpiresAt pgtype.Timestamptz `json:"absolute_expires_at"`
 	IpPrefix          *string            `json:"ip_prefix"`
 	UserAgent         *string            `json:"user_agent"`
+	MfaPending        bool               `json:"mfa_pending"`
 }
 
-func (q *Queries) CreateSession(ctx context.Context, arg CreateSessionParams) (Session, error) {
+type CreateSessionRow struct {
+	ID                pgtype.UUID        `json:"id"`
+	UserID            pgtype.UUID        `json:"user_id"`
+	TokenHash         []byte             `json:"token_hash"`
+	CsrfTokenHash     []byte             `json:"csrf_token_hash"`
+	LastAuthAt        pgtype.Timestamptz `json:"last_auth_at"`
+	ExpiresAt         pgtype.Timestamptz `json:"expires_at"`
+	AbsoluteExpiresAt pgtype.Timestamptz `json:"absolute_expires_at"`
+	RevokedAt         pgtype.Timestamptz `json:"revoked_at"`
+	IpPrefix          *string            `json:"ip_prefix"`
+	UserAgent         *string            `json:"user_agent"`
+	MfaPending        bool               `json:"mfa_pending"`
+	MfaFailedAttempts int16              `json:"mfa_failed_attempts"`
+	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+}
+
+func (q *Queries) CreateSession(ctx context.Context, arg CreateSessionParams) (CreateSessionRow, error) {
 	row := q.db.QueryRow(ctx, createSession,
 		arg.ID,
 		arg.UserID,
@@ -79,8 +97,9 @@ func (q *Queries) CreateSession(ctx context.Context, arg CreateSessionParams) (S
 		arg.AbsoluteExpiresAt,
 		arg.IpPrefix,
 		arg.UserAgent,
+		arg.MfaPending,
 	)
-	var i Session
+	var i CreateSessionRow
 	err := row.Scan(
 		&i.ID,
 		&i.UserID,
@@ -92,6 +111,8 @@ func (q *Queries) CreateSession(ctx context.Context, arg CreateSessionParams) (S
 		&i.RevokedAt,
 		&i.IpPrefix,
 		&i.UserAgent,
+		&i.MfaPending,
+		&i.MfaFailedAttempts,
 		&i.CreatedAt,
 	)
 	return i, err
@@ -101,7 +122,7 @@ const createUser = `-- name: CreateUser :one
 
 INSERT INTO users (id, email, name, password_hash)
 VALUES ($1, lower(btrim($3::text)), btrim($4::text), $2)
-RETURNING id, email, name, password_hash, email_verified_at, mfa_enabled, mfa_secret_encrypted, status, created_at, updated_at
+RETURNING id, email, name, password_hash, email_verified_at, mfa_enabled, mfa_secret_encrypted, status, created_at, updated_at, mfa_last_used_step
 `
 
 type CreateUserParams struct {
@@ -132,6 +153,7 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, e
 		&i.Status,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.MfaLastUsedStep,
 	)
 	return i, err
 }
@@ -160,6 +182,25 @@ func (q *Queries) CreateUserToken(ctx context.Context, arg CreateUserTokenParams
 	return err
 }
 
+const enableUserMFA = `-- name: EnableUserMFA :exec
+UPDATE users
+SET mfa_enabled = true,
+    mfa_last_used_step = $2,
+    updated_at = $3::timestamptz
+WHERE id = $1
+`
+
+type EnableUserMFAParams struct {
+	ID              pgtype.UUID        `json:"id"`
+	MfaLastUsedStep *int64             `json:"mfa_last_used_step"`
+	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
+}
+
+func (q *Queries) EnableUserMFA(ctx context.Context, arg EnableUserMFAParams) error {
+	_, err := q.db.Exec(ctx, enableUserMFA, arg.ID, arg.MfaLastUsedStep, arg.UpdatedAt)
+	return err
+}
+
 const getActiveSessionByTokenHash = `-- name: GetActiveSessionByTokenHash :one
 SELECT
     s.id,
@@ -173,13 +214,16 @@ SELECT
     s.ip_prefix,
     s.user_agent,
     s.created_at,
-    u.email       AS user_email,
-    u.name        AS user_name,
-    u.mfa_enabled AS user_mfa_enabled,
-    u.status      AS user_status
+    u.email                AS user_email,
+    u.name                 AS user_name,
+    u.mfa_enabled          AS user_mfa_enabled,
+    u.mfa_secret_encrypted AS user_mfa_secret_encrypted,
+    u.mfa_last_used_step   AS user_mfa_last_used_step,
+    u.status               AS user_status
 FROM sessions s
 JOIN users u ON u.id = s.user_id AND u.status = 'active'
 WHERE s.token_hash = $1
+  AND s.mfa_pending = false
   AND s.revoked_at IS NULL
   AND s.expires_at > $2::timestamptz
   AND s.absolute_expires_at > $2::timestamptz
@@ -191,21 +235,23 @@ type GetActiveSessionByTokenHashParams struct {
 }
 
 type GetActiveSessionByTokenHashRow struct {
-	ID                pgtype.UUID        `json:"id"`
-	UserID            pgtype.UUID        `json:"user_id"`
-	TokenHash         []byte             `json:"token_hash"`
-	CsrfTokenHash     []byte             `json:"csrf_token_hash"`
-	LastAuthAt        pgtype.Timestamptz `json:"last_auth_at"`
-	ExpiresAt         pgtype.Timestamptz `json:"expires_at"`
-	AbsoluteExpiresAt pgtype.Timestamptz `json:"absolute_expires_at"`
-	RevokedAt         pgtype.Timestamptz `json:"revoked_at"`
-	IpPrefix          *string            `json:"ip_prefix"`
-	UserAgent         *string            `json:"user_agent"`
-	CreatedAt         pgtype.Timestamptz `json:"created_at"`
-	UserEmail         string             `json:"user_email"`
-	UserName          string             `json:"user_name"`
-	UserMfaEnabled    bool               `json:"user_mfa_enabled"`
-	UserStatus        string             `json:"user_status"`
+	ID                     pgtype.UUID        `json:"id"`
+	UserID                 pgtype.UUID        `json:"user_id"`
+	TokenHash              []byte             `json:"token_hash"`
+	CsrfTokenHash          []byte             `json:"csrf_token_hash"`
+	LastAuthAt             pgtype.Timestamptz `json:"last_auth_at"`
+	ExpiresAt              pgtype.Timestamptz `json:"expires_at"`
+	AbsoluteExpiresAt      pgtype.Timestamptz `json:"absolute_expires_at"`
+	RevokedAt              pgtype.Timestamptz `json:"revoked_at"`
+	IpPrefix               *string            `json:"ip_prefix"`
+	UserAgent              *string            `json:"user_agent"`
+	CreatedAt              pgtype.Timestamptz `json:"created_at"`
+	UserEmail              string             `json:"user_email"`
+	UserName               string             `json:"user_name"`
+	UserMfaEnabled         bool               `json:"user_mfa_enabled"`
+	UserMfaSecretEncrypted []byte             `json:"user_mfa_secret_encrypted"`
+	UserMfaLastUsedStep    *int64             `json:"user_mfa_last_used_step"`
+	UserStatus             string             `json:"user_status"`
 }
 
 func (q *Queries) GetActiveSessionByTokenHash(ctx context.Context, arg GetActiveSessionByTokenHashParams) (GetActiveSessionByTokenHashRow, error) {
@@ -226,13 +272,81 @@ func (q *Queries) GetActiveSessionByTokenHash(ctx context.Context, arg GetActive
 		&i.UserEmail,
 		&i.UserName,
 		&i.UserMfaEnabled,
+		&i.UserMfaSecretEncrypted,
+		&i.UserMfaLastUsedStep,
 		&i.UserStatus,
 	)
 	return i, err
 }
 
+const getPendingMFASessionByTokenHash = `-- name: GetPendingMFASessionByTokenHash :one
+SELECT
+    s.id,
+    s.user_id,
+    s.token_hash,
+    s.csrf_token_hash,
+    s.last_auth_at,
+    s.expires_at,
+    s.absolute_expires_at,
+    s.mfa_failed_attempts,
+    u.email                AS user_email,
+    u.name                 AS user_name,
+    u.mfa_enabled          AS user_mfa_enabled,
+    u.mfa_secret_encrypted AS user_mfa_secret_encrypted,
+    u.mfa_last_used_step   AS user_mfa_last_used_step
+FROM sessions s
+JOIN users u ON u.id = s.user_id AND u.status = 'active'
+WHERE s.token_hash = $1
+  AND s.mfa_pending = true
+  AND s.revoked_at IS NULL
+  AND s.expires_at > $2::timestamptz
+  AND s.absolute_expires_at > $2::timestamptz
+`
+
+type GetPendingMFASessionByTokenHashParams struct {
+	TokenHash []byte             `json:"token_hash"`
+	Now       pgtype.Timestamptz `json:"now"`
+}
+
+type GetPendingMFASessionByTokenHashRow struct {
+	ID                     pgtype.UUID        `json:"id"`
+	UserID                 pgtype.UUID        `json:"user_id"`
+	TokenHash              []byte             `json:"token_hash"`
+	CsrfTokenHash          []byte             `json:"csrf_token_hash"`
+	LastAuthAt             pgtype.Timestamptz `json:"last_auth_at"`
+	ExpiresAt              pgtype.Timestamptz `json:"expires_at"`
+	AbsoluteExpiresAt      pgtype.Timestamptz `json:"absolute_expires_at"`
+	MfaFailedAttempts      int16              `json:"mfa_failed_attempts"`
+	UserEmail              string             `json:"user_email"`
+	UserName               string             `json:"user_name"`
+	UserMfaEnabled         bool               `json:"user_mfa_enabled"`
+	UserMfaSecretEncrypted []byte             `json:"user_mfa_secret_encrypted"`
+	UserMfaLastUsedStep    *int64             `json:"user_mfa_last_used_step"`
+}
+
+func (q *Queries) GetPendingMFASessionByTokenHash(ctx context.Context, arg GetPendingMFASessionByTokenHashParams) (GetPendingMFASessionByTokenHashRow, error) {
+	row := q.db.QueryRow(ctx, getPendingMFASessionByTokenHash, arg.TokenHash, arg.Now)
+	var i GetPendingMFASessionByTokenHashRow
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.TokenHash,
+		&i.CsrfTokenHash,
+		&i.LastAuthAt,
+		&i.ExpiresAt,
+		&i.AbsoluteExpiresAt,
+		&i.MfaFailedAttempts,
+		&i.UserEmail,
+		&i.UserName,
+		&i.UserMfaEnabled,
+		&i.UserMfaSecretEncrypted,
+		&i.UserMfaLastUsedStep,
+	)
+	return i, err
+}
+
 const getUserByEmail = `-- name: GetUserByEmail :one
-SELECT id, email, name, password_hash, email_verified_at, mfa_enabled, mfa_secret_encrypted, status, created_at, updated_at
+SELECT id, email, name, password_hash, email_verified_at, mfa_enabled, mfa_secret_encrypted, status, created_at, updated_at, mfa_last_used_step
 FROM users
 WHERE email = lower(btrim($1::text))
 `
@@ -251,12 +365,13 @@ func (q *Queries) GetUserByEmail(ctx context.Context, email string) (User, error
 		&i.Status,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.MfaLastUsedStep,
 	)
 	return i, err
 }
 
 const getUserByID = `-- name: GetUserByID :one
-SELECT id, email, name, password_hash, email_verified_at, mfa_enabled, mfa_secret_encrypted, status, created_at, updated_at
+SELECT id, email, name, password_hash, email_verified_at, mfa_enabled, mfa_secret_encrypted, status, created_at, updated_at, mfa_last_used_step
 FROM users
 WHERE id = $1
 `
@@ -275,7 +390,34 @@ func (q *Queries) GetUserByID(ctx context.Context, id pgtype.UUID) (User, error)
 		&i.Status,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.MfaLastUsedStep,
 	)
+	return i, err
+}
+
+const incrementSessionMFAFailedAttempts = `-- name: IncrementSessionMFAFailedAttempts :one
+UPDATE sessions
+SET mfa_failed_attempts = mfa_failed_attempts + 1,
+    revoked_at = CASE WHEN mfa_failed_attempts + 1 >= 5 THEN $2::timestamptz ELSE revoked_at END
+WHERE id = $1
+  AND revoked_at IS NULL
+RETURNING mfa_failed_attempts, revoked_at
+`
+
+type IncrementSessionMFAFailedAttemptsParams struct {
+	ID  pgtype.UUID        `json:"id"`
+	Now pgtype.Timestamptz `json:"now"`
+}
+
+type IncrementSessionMFAFailedAttemptsRow struct {
+	MfaFailedAttempts int16              `json:"mfa_failed_attempts"`
+	RevokedAt         pgtype.Timestamptz `json:"revoked_at"`
+}
+
+func (q *Queries) IncrementSessionMFAFailedAttempts(ctx context.Context, arg IncrementSessionMFAFailedAttemptsParams) (IncrementSessionMFAFailedAttemptsRow, error) {
+	row := q.db.QueryRow(ctx, incrementSessionMFAFailedAttempts, arg.ID, arg.Now)
+	var i IncrementSessionMFAFailedAttemptsRow
+	err := row.Scan(&i.MfaFailedAttempts, &i.RevokedAt)
 	return i, err
 }
 
@@ -397,6 +539,28 @@ func (q *Queries) RevokeAllUserSessions(ctx context.Context, arg RevokeAllUserSe
 	return result.RowsAffected(), nil
 }
 
+const revokeOtherUserSessions = `-- name: RevokeOtherUserSessions :execrows
+UPDATE sessions
+SET revoked_at = $2::timestamptz
+WHERE user_id = $1
+  AND id <> $3
+  AND revoked_at IS NULL
+`
+
+type RevokeOtherUserSessionsParams struct {
+	UserID        pgtype.UUID        `json:"user_id"`
+	RevokedAt     pgtype.Timestamptz `json:"revoked_at"`
+	KeepSessionID pgtype.UUID        `json:"keep_session_id"`
+}
+
+func (q *Queries) RevokeOtherUserSessions(ctx context.Context, arg RevokeOtherUserSessionsParams) (int64, error) {
+	result, err := q.db.Exec(ctx, revokeOtherUserSessions, arg.UserID, arg.RevokedAt, arg.KeepSessionID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const revokeSession = `-- name: RevokeSession :execrows
 UPDATE sessions
 SET revoked_at = $2::timestamptz
@@ -415,6 +579,43 @@ func (q *Queries) RevokeSession(ctx context.Context, arg RevokeSessionParams) (i
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const setUserPendingMFASecret = `-- name: SetUserPendingMFASecret :exec
+UPDATE users
+SET mfa_secret_encrypted = $2,
+    updated_at = $3::timestamptz
+WHERE id = $1
+  AND mfa_enabled = false
+`
+
+type SetUserPendingMFASecretParams struct {
+	ID                 pgtype.UUID        `json:"id"`
+	MfaSecretEncrypted []byte             `json:"mfa_secret_encrypted"`
+	UpdatedAt          pgtype.Timestamptz `json:"updated_at"`
+}
+
+func (q *Queries) SetUserPendingMFASecret(ctx context.Context, arg SetUserPendingMFASecretParams) error {
+	_, err := q.db.Exec(ctx, setUserPendingMFASecret, arg.ID, arg.MfaSecretEncrypted, arg.UpdatedAt)
+	return err
+}
+
+const updateUserMFALastUsedStep = `-- name: UpdateUserMFALastUsedStep :exec
+UPDATE users
+SET mfa_last_used_step = $2,
+    updated_at = $3::timestamptz
+WHERE id = $1
+`
+
+type UpdateUserMFALastUsedStepParams struct {
+	ID              pgtype.UUID        `json:"id"`
+	MfaLastUsedStep *int64             `json:"mfa_last_used_step"`
+	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
+}
+
+func (q *Queries) UpdateUserMFALastUsedStep(ctx context.Context, arg UpdateUserMFALastUsedStepParams) error {
+	_, err := q.db.Exec(ctx, updateUserMFALastUsedStep, arg.ID, arg.MfaLastUsedStep, arg.UpdatedAt)
+	return err
 }
 
 const updateUserPasswordHash = `-- name: UpdateUserPasswordHash :exec

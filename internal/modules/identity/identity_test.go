@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"encoding/base32"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -16,9 +18,11 @@ import (
 
 	"github.com/Yhanko/vigia/internal/api"
 	"github.com/Yhanko/vigia/internal/modules/identity"
+	"github.com/Yhanko/vigia/internal/modules/identity/internal/totp"
 	"github.com/Yhanko/vigia/internal/modules/identity/password"
 	"github.com/Yhanko/vigia/internal/modules/identity/session"
 	"github.com/Yhanko/vigia/internal/platform/clock"
+	"github.com/Yhanko/vigia/internal/platform/crypto"
 	"github.com/Yhanko/vigia/internal/platform/httpserver"
 	"github.com/Yhanko/vigia/internal/platform/ratelimit"
 )
@@ -37,6 +41,7 @@ type memStore struct {
 	verified map[string]time.Time              // by user id
 	sessions map[string]identity.SessionRecord // by id
 	revoked  map[string]time.Time
+	mfaFails map[string]int16
 	tokens   []memToken
 	audits   []identity.AuditEvent
 }
@@ -48,6 +53,7 @@ func newMemStore() *memStore {
 		verified: make(map[string]time.Time),
 		sessions: make(map[string]identity.SessionRecord),
 		revoked:  make(map[string]time.Time),
+		mfaFails: make(map[string]int16),
 	}
 }
 
@@ -184,10 +190,18 @@ func (m *memStore) CreateSession(_ context.Context, rec identity.SessionRecord) 
 }
 
 func (m *memStore) GetActiveSessionByTokenHash(_ context.Context, tokenHash []byte, now time.Time) (identity.ActiveSession, error) {
+	return m.lookupSession(tokenHash, now, false)
+}
+
+func (m *memStore) GetPendingMFASessionByTokenHash(_ context.Context, tokenHash []byte, now time.Time) (identity.ActiveSession, error) {
+	return m.lookupSession(tokenHash, now, true)
+}
+
+func (m *memStore) lookupSession(tokenHash []byte, now time.Time, pending bool) (identity.ActiveSession, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for id, s := range m.sessions {
-		if !bytes.Equal(s.TokenHash, tokenHash) {
+		if s.MFAPending != pending || !bytes.Equal(s.TokenHash, tokenHash) {
 			continue
 		}
 		if _, isRevoked := m.revoked[id]; isRevoked {
@@ -201,18 +215,112 @@ func (m *memStore) GetActiveSessionByTokenHash(_ context.Context, tokenHash []by
 			return identity.ActiveSession{}, identity.ErrNotFound
 		}
 		return identity.ActiveSession{
-			ID:                s.ID,
-			UserID:            s.UserID,
-			CSRFTokenHash:     s.CSRFTokenHash,
-			LastAuthAt:        s.LastAuthAt,
-			ExpiresAt:         s.ExpiresAt,
-			AbsoluteExpiresAt: s.AbsoluteExpiresAt,
-			UserEmail:         u.Email,
-			UserName:          u.Name,
-			UserMFAEnabled:    u.MFAEnabled,
+			ID:                     s.ID,
+			UserID:                 s.UserID,
+			CSRFTokenHash:          s.CSRFTokenHash,
+			LastAuthAt:             s.LastAuthAt,
+			ExpiresAt:              s.ExpiresAt,
+			AbsoluteExpiresAt:      s.AbsoluteExpiresAt,
+			MFAPending:             s.MFAPending,
+			MFAFailedAttempts:      m.mfaFails[id],
+			UserEmail:              u.Email,
+			UserName:               u.Name,
+			UserMFAEnabled:         u.MFAEnabled,
+			UserMFASecretEncrypted: u.MFASecretEncrypted,
+			UserMFALastUsedStep:    u.MFALastUsedStep,
 		}, nil
 	}
 	return identity.ActiveSession{}, identity.ErrNotFound
+}
+
+func (m *memStore) SetUserPendingMFASecret(_ context.Context, userID string, encrypted []byte, _ time.Time) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	u := m.usersID[userID]
+	u.MFASecretEncrypted = encrypted
+	m.usersID[userID] = u
+	m.users[u.Email] = u
+	return nil
+}
+
+func (m *memStore) ActivateMFA(_ context.Context, userID, _ string, step int64, recoveryTokens []identity.UserTokenRecord, next identity.SessionRecord, now time.Time) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	u := m.usersID[userID]
+	u.MFAEnabled = true
+	st := step
+	u.MFALastUsedStep = &st
+	m.usersID[userID] = u
+	m.users[u.Email] = u
+	for i := range m.tokens {
+		if m.tokens[i].rec.UserID == userID && m.tokens[i].rec.Kind == identity.TokenKindMFARecovery {
+			m.tokens[i].used = true
+		}
+	}
+	for _, rec := range recoveryTokens {
+		m.tokens = append(m.tokens, memToken{rec: rec})
+	}
+	for sid, s := range m.sessions {
+		if s.UserID == userID {
+			m.revoked[sid] = now
+		}
+	}
+	m.sessions[next.ID] = next
+	return nil
+}
+
+func (m *memStore) CompleteMFALogin(_ context.Context, userID, pendingSessionID string, step *int64, recoveryTokenHash []byte, next identity.SessionRecord, now time.Time) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if len(recoveryTokenHash) > 0 {
+		found := false
+		for i := range m.tokens {
+			t := &m.tokens[i]
+			if !t.used && t.rec.UserID == userID && t.rec.Kind == identity.TokenKindMFARecovery && bytes.Equal(t.rec.TokenHash, recoveryTokenHash) {
+				t.used = true
+				found = true
+				break
+			}
+		}
+		if !found {
+			return identity.ErrInvalidMFACode
+		}
+	}
+	if _, already := m.revoked[pendingSessionID]; already {
+		return identity.ErrSessionExpired
+	}
+	m.revoked[pendingSessionID] = now
+	if step != nil {
+		u := m.usersID[userID]
+		st := *step
+		u.MFALastUsedStep = &st
+		m.usersID[userID] = u
+		m.users[u.Email] = u
+	}
+	m.sessions[next.ID] = next
+	return nil
+}
+
+func (m *memStore) RecordPendingMFAFailure(_ context.Context, pendingSessionID string, now time.Time) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.mfaFails[pendingSessionID]++
+	if m.mfaFails[pendingSessionID] >= 5 {
+		m.revoked[pendingSessionID] = now
+		return true, nil
+	}
+	return false, nil
+}
+
+func (m *memStore) UpdateUserMFALastUsedStep(_ context.Context, userID string, step int64, _ time.Time) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	u := m.usersID[userID]
+	st := step
+	u.MFALastUsedStep = &st
+	m.usersID[userID] = u
+	m.users[u.Email] = u
+	return nil
 }
 
 func (m *memStore) RevokeSession(_ context.Context, sessionID string, revokedAt time.Time) error {
@@ -418,6 +526,19 @@ func newHarness(t *testing.T, appEnv string) *harness {
 	if err != nil {
 		t.Fatal(err)
 	}
+	kekBytes := make([]byte, 32)
+	if _, err := rand.Read(kekBytes); err != nil {
+		t.Fatal(err)
+	}
+	kr, err := crypto.ParseKeyring([]byte("k1:" + hex.EncodeToString(kekBytes)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	enc, err := crypto.NewEnvelopeEncrypter(kr)
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	mail := &fakeMailer{}
 	svc, err := identity.NewService(identity.ServiceConfig{
 		Store:           store,
@@ -425,6 +546,7 @@ func newHarness(t *testing.T, appEnv string) *harness {
 		Sessions:        codec,
 		Limiter:         lim,
 		RateLimitSecret: secret,
+		Encrypter:       enc,
 		Mailer:          mail,
 		AppURL:          "https://app.vigia.ao",
 		Clock:           clk,
@@ -761,7 +883,7 @@ func TestMFARequiredAndBackpressure503(t *testing.T) {
 	_ = h.doJSON(http.MethodPost, "/api/v1/auth/register",
 		`{"email":"dave@example.com","name":"Dave","password":"`+pass+`"}`, h.origin, "198.51.100.1", nil, "")
 
-	// Enable MFA on user → login stops at 401 MFA_REQUIRED with no cookie (CTO #20).
+	// Enable MFA on user → two-step login returns 202 with pending session cookie (§7.1).
 	u := h.store.users["dave@example.com"]
 	u.MFAEnabled = true
 	h.store.users[u.Email] = u
@@ -769,11 +891,21 @@ func TestMFARequiredAndBackpressure503(t *testing.T) {
 
 	mfaRec := h.doJSON(http.MethodPost, "/api/v1/auth/login",
 		`{"email":"dave@example.com","password":"`+pass+`"}`, h.origin, "198.51.100.2", nil, "")
-	if mfaRec.Code != http.StatusUnauthorized || decodeErrCode(t, mfaRec) != "MFA_REQUIRED" {
-		t.Fatalf("MFA user login = (%d, %s), want (401, MFA_REQUIRED)", mfaRec.Code, mfaRec.Body.String())
+	if mfaRec.Code != http.StatusAccepted {
+		t.Fatalf("MFA user login = (%d, %s), want 202", mfaRec.Code, mfaRec.Body.String())
 	}
-	if len(mfaRec.Result().Cookies()) != 0 {
-		t.Fatal("MFA_REQUIRED response must not issue a session cookie")
+	var chal api.MFAChallengeResponse
+	if err := json.NewDecoder(mfaRec.Body).Decode(&chal); err != nil || !chal.MfaRequired || chal.CsrfToken == "" {
+		t.Fatalf("unexpected MFA challenge body: %+v err=%v", chal, err)
+	}
+	if len(mfaRec.Result().Cookies()) != 1 {
+		t.Fatal("expected pending session cookie on 202 MFA challenge")
+	}
+	// Pending session MUST NOT be accepted on /refresh!
+	pendCk := mfaRec.Result().Cookies()[0]
+	refPend := h.doJSON(http.MethodPost, "/api/v1/auth/refresh", "", h.origin, "198.51.100.2", pendCk, chal.CsrfToken)
+	if refPend.Code != http.StatusUnauthorized || decodeErrCode(t, refPend) != "SESSION_EXPIRED" {
+		t.Fatalf("pending session on /refresh = (%d, %s), want (401, SESSION_EXPIRED)", refPend.Code, refPend.Body.String())
 	}
 
 	// ErrHasherBusy → 503 SERVICE_UNAVAILABLE + Retry-After.
@@ -942,5 +1074,116 @@ func TestEmailVerificationAndPasswordResetFlow(t *testing.T) {
 		`{"email":"frank@example.com","password":"`+pass2+`"}`, h.origin, "198.51.100.5", nil, "")
 	if loginNew.Code != http.StatusOK {
 		t.Fatalf("login with new password = %d, want 200", loginNew.Code)
+	}
+}
+
+func TestMFASetupVerifyTwoStepLoginRecoveryAndReauth(t *testing.T) {
+	h := newHarness(t, "production")
+	pass := "vG9!xQ2#mK7$pR4@zN"
+
+	_ = h.doJSON(http.MethodPost, "/api/v1/auth/register",
+		`{"email":"grace@example.com","name":"Grace","password":"`+pass+`"}`, h.origin, "198.51.100.1", nil, "")
+	loginRec := h.doJSON(http.MethodPost, "/api/v1/auth/login",
+		`{"email":"grace@example.com","password":"`+pass+`"}`, h.origin, "198.51.100.2", nil, "")
+	ck := loginRec.Result().Cookies()[0]
+	var sess api.AuthSessionResponse
+	_ = json.NewDecoder(loginRec.Body).Decode(&sess)
+
+	// Advance > 10m so setup requires reauth (401 REAUTH_REQUIRED).
+	h.clk.Advance(11 * time.Minute)
+	setupStale := h.doJSON(http.MethodPost, "/api/v1/auth/mfa/setup", "", h.origin, "198.51.100.2", ck, sess.CsrfToken)
+	if setupStale.Code != http.StatusUnauthorized || decodeErrCode(t, setupStale) != "REAUTH_REQUIRED" {
+		t.Fatalf("mfa/setup after 11m = (%d, %s), want (401, REAUTH_REQUIRED)", setupStale.Code, setupStale.Body.String())
+	}
+
+	// Reauth refreshes last_auth_at and rotates session.
+	reauthRec := h.doJSON(http.MethodPost, "/api/v1/auth/reauth", `{"password":"`+pass+`"}`, h.origin, "198.51.100.2", ck, sess.CsrfToken)
+	if reauthRec.Code != http.StatusOK {
+		t.Fatalf("reauth = %d (%s), want 200", reauthRec.Code, reauthRec.Body.String())
+	}
+	ck = reauthRec.Result().Cookies()[0]
+	_ = json.NewDecoder(reauthRec.Body).Decode(&sess)
+
+	// MFA setup succeeds and returns secret + otpauthUri.
+	setupRec := h.doJSON(http.MethodPost, "/api/v1/auth/mfa/setup", "", h.origin, "198.51.100.2", ck, sess.CsrfToken)
+	if setupRec.Code != http.StatusOK {
+		t.Fatalf("mfa/setup = %d (%s), want 200", setupRec.Code, setupRec.Body.String())
+	}
+	var setupResp api.MFASetupResponse
+	if err := json.NewDecoder(setupRec.Body).Decode(&setupResp); err != nil {
+		t.Fatal(err)
+	}
+	rawSecret, err := base32.StdEncoding.WithPadding(base32.NoPadding).DecodeString(setupResp.Secret)
+	if err != nil {
+		t.Fatalf("decode setup secret: %v", err)
+	}
+
+	// Confirm MFA setup with valid TOTP code → returns 10 recovery codes and enables MFA.
+	code1 := totp.CodeAt(rawSecret, h.clk.Now())
+	actRec := h.doJSON(http.MethodPost, "/api/v1/auth/mfa/verify", `{"code":"`+code1+`"}`, h.origin, "198.51.100.2", ck, sess.CsrfToken)
+	if actRec.Code != http.StatusOK {
+		t.Fatalf("mfa/verify activation = %d (%s), want 200", actRec.Code, actRec.Body.String())
+	}
+	var actResp api.MFAVerifyResponse
+	if err := json.NewDecoder(actRec.Body).Decode(&actResp); err != nil {
+		t.Fatal(err)
+	}
+	if actResp.RecoveryCodes == nil || len(*actResp.RecoveryCodes) != 10 {
+		t.Fatalf("expected 10 recovery codes, got %v", actResp.RecoveryCodes)
+	}
+	recoveryCode := (*actResp.RecoveryCodes)[0]
+
+	// Two-step login: step 1 returns 202 pending session.
+	l2 := h.doJSON(http.MethodPost, "/api/v1/auth/login",
+		`{"email":"grace@example.com","password":"`+pass+`"}`, h.origin, "198.51.100.3", nil, "")
+	if l2.Code != http.StatusAccepted {
+		t.Fatalf("2-step login = %d, want 202", l2.Code)
+	}
+	pendCk := l2.Result().Cookies()[0]
+	var chal api.MFAChallengeResponse
+	_ = json.NewDecoder(l2.Body).Decode(&chal)
+
+	// Replaying code1 from the same TOTP step MUST fail (anti-replay).
+	replayRec := h.doJSON(http.MethodPost, "/api/v1/auth/mfa/verify", `{"code":"`+code1+`"}`, h.origin, "198.51.100.3", pendCk, chal.CsrfToken)
+	if replayRec.Code != http.StatusUnauthorized || decodeErrCode(t, replayRec) != "INVALID_MFA_CODE" {
+		t.Fatalf("replayed TOTP code = (%d, %s), want (401, INVALID_MFA_CODE)", replayRec.Code, replayRec.Body.String())
+	}
+
+	// Advance 30s to next step and verify with recovery code → 200 full session.
+	h.clk.Advance(30 * time.Second)
+	recVerify := h.doJSON(http.MethodPost, "/api/v1/auth/mfa/verify", `{"recoveryCode":"`+recoveryCode+`"}`, h.origin, "198.51.100.3", pendCk, chal.CsrfToken)
+	if recVerify.Code != http.StatusOK {
+		t.Fatalf("recovery code login = %d (%s), want 200", recVerify.Code, recVerify.Body.String())
+	}
+
+	// Reusing the same recovery code on a new login fails; 5 failures revoke pending session.
+	l3 := h.doJSON(http.MethodPost, "/api/v1/auth/login",
+		`{"email":"grace@example.com","password":"`+pass+`"}`, h.origin, "198.51.100.4", nil, "")
+	pendCk3 := l3.Result().Cookies()[0]
+	var chal3 api.MFAChallengeResponse
+	_ = json.NewDecoder(l3.Body).Decode(&chal3)
+
+	for i := range 5 {
+		failRec := h.doJSON(http.MethodPost, "/api/v1/auth/mfa/verify", `{"recoveryCode":"`+recoveryCode+`"}`, h.origin, "198.51.100.5", pendCk3, chal3.CsrfToken)
+		if i < 4 {
+			if failRec.Code != http.StatusUnauthorized || decodeErrCode(t, failRec) != "INVALID_MFA_CODE" {
+				t.Fatalf("mfa fail #%d = (%d, %s), want (401, INVALID_MFA_CODE)", i+1, failRec.Code, failRec.Body.String())
+			}
+		} else {
+			if failRec.Code != http.StatusUnauthorized || decodeErrCode(t, failRec) != "SESSION_EXPIRED" {
+				t.Fatalf("5th mfa fail = (%d, %s), want (401, SESSION_EXPIRED)", failRec.Code, failRec.Body.String())
+			}
+		}
+	}
+
+	// CheckPrivilegedMFA helper enforces owner/admin MFA when enabled.
+	if identity.CheckPrivilegedMFA(true, identity.ActiveSession{UserMFAEnabled: false}, "owner") {
+		t.Fatal("CheckPrivilegedMFA must block owner without MFA when enforced")
+	}
+	if !identity.CheckPrivilegedMFA(true, identity.ActiveSession{UserMFAEnabled: true}, "owner") {
+		t.Fatal("CheckPrivilegedMFA must allow owner with MFA")
+	}
+	if !identity.CheckPrivilegedMFA(true, identity.ActiveSession{UserMFAEnabled: false}, "member") {
+		t.Fatal("CheckPrivilegedMFA must allow non-privileged member without MFA")
 	}
 }

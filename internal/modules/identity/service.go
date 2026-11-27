@@ -39,12 +39,14 @@ const (
 
 // User represents a global identity user record.
 type User struct {
-	ID           string
-	Email        string
-	Name         string
-	PasswordHash string
-	MFAEnabled   bool
-	Status       string
+	ID                 string
+	Email              string
+	Name               string
+	PasswordHash       string
+	MFAEnabled         bool
+	MFASecretEncrypted []byte
+	MFALastUsedStep    *int64
+	Status             string
 }
 
 // SessionRecord holds the fields required to persist a new session row.
@@ -58,20 +60,25 @@ type SessionRecord struct {
 	AbsoluteExpiresAt time.Time
 	IPPrefix          *string
 	UserAgent         *string
+	MFAPending        bool
 }
 
 // ActiveSession represents a validated, non-revoked, non-expired session joined
 // with an active user (CTO #14).
 type ActiveSession struct {
-	ID                string
-	UserID            string
-	CSRFTokenHash     []byte
-	LastAuthAt        time.Time
-	ExpiresAt         time.Time
-	AbsoluteExpiresAt time.Time
-	UserEmail         string
-	UserName          string
-	UserMFAEnabled    bool
+	ID                     string
+	UserID                 string
+	CSRFTokenHash          []byte
+	LastAuthAt             time.Time
+	ExpiresAt              time.Time
+	AbsoluteExpiresAt      time.Time
+	MFAPending             bool
+	MFAFailedAttempts      int16
+	UserEmail              string
+	UserName               string
+	UserMFAEnabled         bool
+	UserMFASecretEncrypted []byte
+	UserMFALastUsedStep    *int64
 }
 
 // AuditEvent represents a global authentication audit entry (organization_id = NULL).
@@ -119,8 +126,14 @@ type Store interface {
 	DeactivateUser(ctx context.Context, userID, status string, now time.Time) error
 	CreateSession(ctx context.Context, s SessionRecord) error
 	GetActiveSessionByTokenHash(ctx context.Context, tokenHash []byte, now time.Time) (ActiveSession, error)
+	GetPendingMFASessionByTokenHash(ctx context.Context, tokenHash []byte, now time.Time) (ActiveSession, error)
 	RevokeSession(ctx context.Context, sessionID string, revokedAt time.Time) error
 	RotateSession(ctx context.Context, oldSessionID string, next SessionRecord, revokedAt time.Time) error
+	SetUserPendingMFASecret(ctx context.Context, userID string, encrypted []byte, now time.Time) error
+	ActivateMFA(ctx context.Context, userID, oldSessionID string, step int64, recoveryTokens []UserTokenRecord, next SessionRecord, now time.Time) error
+	CompleteMFALogin(ctx context.Context, userID, pendingSessionID string, step *int64, recoveryTokenHash []byte, next SessionRecord, now time.Time) error
+	RecordPendingMFAFailure(ctx context.Context, pendingSessionID string, now time.Time) (revoked bool, err error)
+	UpdateUserMFALastUsedStep(ctx context.Context, userID string, step int64, now time.Time) error
 	CreateUserToken(ctx context.Context, rec UserTokenRecord) error
 	ReplaceUserToken(ctx context.Context, rec UserTokenRecord, now time.Time) error
 	VerifyEmailByToken(ctx context.Context, tokenHash []byte, now time.Time) (string, error)
@@ -150,6 +163,7 @@ type ServiceConfig struct {
 	Sessions        *session.Codec
 	Limiter         RateLimiter
 	RateLimitSecret []byte
+	Encrypter       SecretEncrypter
 	Mailer          Mailer
 	AppURL          string
 	Clock           clock.Clock
@@ -157,13 +171,14 @@ type ServiceConfig struct {
 }
 
 // Service implements register, login, logout, refresh, email verification,
-// password reset, and session authentication.
+// password reset, MFA, reauth, and session authentication.
 type Service struct {
 	store           Store
 	hasher          PasswordHasher
 	sessions        *session.Codec
 	limiter         RateLimiter
 	rateLimitSecret []byte
+	encrypter       SecretEncrypter
 	mailer          Mailer
 	appURL          string
 	clk             clock.Clock
@@ -200,6 +215,7 @@ func NewService(cfg ServiceConfig) (*Service, error) {
 		sessions:        cfg.Sessions,
 		limiter:         cfg.Limiter,
 		rateLimitSecret: secretCopy,
+		encrypter:       cfg.Encrypter,
 		mailer:          cfg.Mailer,
 		appURL:          strings.TrimRight(strings.TrimSpace(cfg.AppURL), "/"),
 		clk:             clk,
@@ -428,6 +444,7 @@ type AuthResult struct {
 	Email        string
 	Name         string
 	MFAEnabled   bool
+	MFAPending   bool
 	SessionToken string
 	CSRFToken    string
 	ExpiresAt    time.Time
@@ -496,13 +513,50 @@ func (s *Service) Login(ctx context.Context, in LoginInput) (AuthResult, error) 
 		s.logger.Warn("failed to reset login failure counter", "error", rErr)
 	}
 
-	// CTO #20: stop here when MFA is enabled; intermediate MFA flow comes before D8.
-	if user.MFAEnabled {
-		s.recordAudit(ctx, "user", user.ID, "auth.login", "session", "", "denied", in.Meta, []byte(`{"reason":"mfa_required"}`))
-		return AuthResult{}, ErrMFARequired
-	}
-
 	now := s.clk.Now().UTC()
+
+	// Two-step MFA login (§7.1): create short-lived (10m) mfa_pending session and return 202.
+	if user.MFAEnabled {
+		sessToken, tokenHash, err := s.sessions.NewToken()
+		if err != nil {
+			return AuthResult{}, fmt.Errorf("login pending mfa token: %w", err)
+		}
+		csrfToken, csrfHash, err := s.sessions.NewCSRFToken()
+		if err != nil {
+			return AuthResult{}, fmt.Errorf("login pending mfa csrf: %w", err)
+		}
+		sessID, err := newUUIDv4()
+		if err != nil {
+			return AuthResult{}, fmt.Errorf("login pending mfa id: %w", err)
+		}
+		pendingExp := now.Add(PendingMFASessionTTL)
+		if err := s.store.CreateSession(ctx, SessionRecord{
+			ID:                sessID,
+			UserID:            user.ID,
+			TokenHash:         tokenHash,
+			CSRFTokenHash:     csrfHash,
+			LastAuthAt:        now,
+			ExpiresAt:         pendingExp,
+			AbsoluteExpiresAt: pendingExp,
+			IPPrefix:          truncateIPPrefix(in.Meta.ClientIP),
+			UserAgent:         truncateUserAgent(in.Meta.UserAgent),
+			MFAPending:        true,
+		}); err != nil {
+			return AuthResult{}, fmt.Errorf("login create pending mfa session: %w", err)
+		}
+		s.recordAudit(ctx, "user", user.ID, "auth.login", "session", sessID, "success", in.Meta, []byte(`{"mfa_pending":true}`))
+		return AuthResult{
+			UserID:       user.ID,
+			Email:        user.Email,
+			Name:         user.Name,
+			MFAEnabled:   true,
+			MFAPending:   true,
+			SessionToken: sessToken,
+			CSRFToken:    csrfToken,
+			ExpiresAt:    pendingExp,
+			Now:          now,
+		}, nil
+	}
 
 	// Transparent Argon2id parameter upgrade when hash parameters are outdated.
 	if s.hasher.NeedsRehash(user.PasswordHash) {

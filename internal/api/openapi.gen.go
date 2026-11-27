@@ -65,6 +65,33 @@ type LoginRequest struct {
 	Password string `json:"password"`
 }
 
+// MFAChallengeResponse defines model for MFAChallengeResponse.
+type MFAChallengeResponse struct {
+	CsrfToken   string    `json:"csrfToken"`
+	ExpiresAt   time.Time `json:"expiresAt"`
+	MfaRequired bool      `json:"mfaRequired"`
+}
+
+// MFASetupResponse defines model for MFASetupResponse.
+type MFASetupResponse struct {
+	OtpauthUri string `json:"otpauthUri"`
+	Secret     string `json:"secret"`
+}
+
+// MFAVerifyRequest defines model for MFAVerifyRequest.
+type MFAVerifyRequest struct {
+	Code         *string `json:"code,omitempty"`
+	RecoveryCode *string `json:"recoveryCode,omitempty"`
+}
+
+// MFAVerifyResponse defines model for MFAVerifyResponse.
+type MFAVerifyResponse struct {
+	CsrfToken     string    `json:"csrfToken"`
+	ExpiresAt     time.Time `json:"expiresAt"`
+	RecoveryCodes *[]string `json:"recoveryCodes,omitempty"`
+	User          AuthUser  `json:"user"`
+}
+
 // PasswordForgotRequest defines model for PasswordForgotRequest.
 type PasswordForgotRequest struct {
 	Email string `json:"email"`
@@ -74,6 +101,12 @@ type PasswordForgotRequest struct {
 type PasswordResetRequest struct {
 	Password string `json:"password"`
 	Token    string `json:"token"`
+}
+
+// ReauthRequest defines model for ReauthRequest.
+type ReauthRequest struct {
+	Code     *string `json:"code,omitempty"`
+	Password string  `json:"password"`
 }
 
 // RegisterRequest defines model for RegisterRequest.
@@ -118,6 +151,24 @@ type AuthLogoutParams struct {
 	XCSRFToken CSRFTokenHeader `json:"X-CSRF-Token"`
 }
 
+// AuthMFASetupParams defines parameters for AuthMFASetup.
+type AuthMFASetupParams struct {
+	// XCSRFToken Session-bound CSRF token required on state-changing cookie-authenticated requests (ADR-005).
+	XCSRFToken CSRFTokenHeader `json:"X-CSRF-Token"`
+}
+
+// AuthMFAVerifyParams defines parameters for AuthMFAVerify.
+type AuthMFAVerifyParams struct {
+	// XCSRFToken Session-bound CSRF token required on state-changing cookie-authenticated requests (ADR-005).
+	XCSRFToken CSRFTokenHeader `json:"X-CSRF-Token"`
+}
+
+// AuthReauthParams defines parameters for AuthReauth.
+type AuthReauthParams struct {
+	// XCSRFToken Session-bound CSRF token required on state-changing cookie-authenticated requests (ADR-005).
+	XCSRFToken CSRFTokenHeader `json:"X-CSRF-Token"`
+}
+
 // AuthRefreshParams defines parameters for AuthRefresh.
 type AuthRefreshParams struct {
 	// XCSRFToken Session-bound CSRF token required on state-changing cookie-authenticated requests (ADR-005).
@@ -127,11 +178,17 @@ type AuthRefreshParams struct {
 // AuthLoginJSONRequestBody defines body for AuthLogin for application/json ContentType.
 type AuthLoginJSONRequestBody = LoginRequest
 
+// AuthMFAVerifyJSONRequestBody defines body for AuthMFAVerify for application/json ContentType.
+type AuthMFAVerifyJSONRequestBody = MFAVerifyRequest
+
 // AuthPasswordForgotJSONRequestBody defines body for AuthPasswordForgot for application/json ContentType.
 type AuthPasswordForgotJSONRequestBody = PasswordForgotRequest
 
 // AuthPasswordResetJSONRequestBody defines body for AuthPasswordReset for application/json ContentType.
 type AuthPasswordResetJSONRequestBody = PasswordResetRequest
+
+// AuthReauthJSONRequestBody defines body for AuthReauth for application/json ContentType.
+type AuthReauthJSONRequestBody = ReauthRequest
 
 // AuthRegisterJSONRequestBody defines body for AuthRegister for application/json ContentType.
 type AuthRegisterJSONRequestBody = RegisterRequest
@@ -147,12 +204,21 @@ type ServerInterface interface {
 	// AuthLogout Revoke the active session and clear the session cookie
 	// (POST /auth/logout)
 	AuthLogout(w http.ResponseWriter, r *http.Request, params AuthLogoutParams)
+	// AuthMFASetup Begin TOTP MFA enrollment (requires recent authentication)
+	// (POST /auth/mfa/setup)
+	AuthMFASetup(w http.ResponseWriter, r *http.Request, params AuthMFASetupParams)
+	// AuthMFAVerify Verify TOTP or recovery code (completes MFA setup or two-step login)
+	// (POST /auth/mfa/verify)
+	AuthMFAVerify(w http.ResponseWriter, r *http.Request, params AuthMFAVerifyParams)
 	// AuthPasswordForgot Request a password reset email
 	// (POST /auth/password/forgot)
 	AuthPasswordForgot(w http.ResponseWriter, r *http.Request)
 	// AuthPasswordReset Reset password using a single-use reset token and revoke all sessions
 	// (POST /auth/password/reset)
 	AuthPasswordReset(w http.ResponseWriter, r *http.Request)
+	// AuthReauth Re-authenticate an active session for high-risk operations
+	// (POST /auth/reauth)
+	AuthReauth(w http.ResponseWriter, r *http.Request, params AuthReauthParams)
 	// AuthRefresh Rotate and extend the active sliding session
 	// (POST /auth/refresh)
 	AuthRefresh(w http.ResponseWriter, r *http.Request, params AuthRefreshParams)
@@ -182,6 +248,18 @@ func (_ Unimplemented) AuthLogout(w http.ResponseWriter, r *http.Request, params
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// AuthMFASetup Begin TOTP MFA enrollment (requires recent authentication)
+// (POST /auth/mfa/setup)
+func (_ Unimplemented) AuthMFASetup(w http.ResponseWriter, r *http.Request, params AuthMFASetupParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// AuthMFAVerify Verify TOTP or recovery code (completes MFA setup or two-step login)
+// (POST /auth/mfa/verify)
+func (_ Unimplemented) AuthMFAVerify(w http.ResponseWriter, r *http.Request, params AuthMFAVerifyParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // AuthPasswordForgot Request a password reset email
 // (POST /auth/password/forgot)
 func (_ Unimplemented) AuthPasswordForgot(w http.ResponseWriter, r *http.Request) {
@@ -191,6 +269,12 @@ func (_ Unimplemented) AuthPasswordForgot(w http.ResponseWriter, r *http.Request
 // AuthPasswordReset Reset password using a single-use reset token and revoke all sessions
 // (POST /auth/password/reset)
 func (_ Unimplemented) AuthPasswordReset(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// AuthReauth Re-authenticate an active session for high-risk operations
+// (POST /auth/reauth)
+func (_ Unimplemented) AuthReauth(w http.ResponseWriter, r *http.Request, params AuthReauthParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -286,6 +370,96 @@ func (siw *ServerInterfaceWrapper) AuthLogout(w http.ResponseWriter, r *http.Req
 	handler.ServeHTTP(w, r)
 }
 
+// AuthMFASetup operation middleware
+func (siw *ServerInterfaceWrapper) AuthMFASetup(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params AuthMFASetupParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "X-CSRF-Token" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-CSRF-Token")]; found {
+		var XCSRFToken CSRFTokenHeader
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "X-CSRF-Token", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-CSRF-Token", valueList[0], &XCSRFToken, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "X-CSRF-Token", Err: err})
+			return
+		}
+
+		params.XCSRFToken = XCSRFToken
+
+	} else {
+		err := fmt.Errorf("Header parameter X-CSRF-Token is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "X-CSRF-Token", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.AuthMFASetup(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// AuthMFAVerify operation middleware
+func (siw *ServerInterfaceWrapper) AuthMFAVerify(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params AuthMFAVerifyParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "X-CSRF-Token" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-CSRF-Token")]; found {
+		var XCSRFToken CSRFTokenHeader
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "X-CSRF-Token", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-CSRF-Token", valueList[0], &XCSRFToken, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "X-CSRF-Token", Err: err})
+			return
+		}
+
+		params.XCSRFToken = XCSRFToken
+
+	} else {
+		err := fmt.Errorf("Header parameter X-CSRF-Token is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "X-CSRF-Token", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.AuthMFAVerify(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // AuthPasswordForgot operation middleware
 func (siw *ServerInterfaceWrapper) AuthPasswordForgot(w http.ResponseWriter, r *http.Request) {
 
@@ -305,6 +479,51 @@ func (siw *ServerInterfaceWrapper) AuthPasswordReset(w http.ResponseWriter, r *h
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.AuthPasswordReset(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// AuthReauth operation middleware
+func (siw *ServerInterfaceWrapper) AuthReauth(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params AuthReauthParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "X-CSRF-Token" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-CSRF-Token")]; found {
+		var XCSRFToken CSRFTokenHeader
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "X-CSRF-Token", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-CSRF-Token", valueList[0], &XCSRFToken, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "X-CSRF-Token", Err: err})
+			return
+		}
+
+		params.XCSRFToken = XCSRFToken
+
+	} else {
+		err := fmt.Errorf("Header parameter X-CSRF-Token is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "X-CSRF-Token", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.AuthReauth(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -538,6 +757,15 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/auth/password/reset", wrapper.AuthPasswordReset)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/auth/mfa/setup", wrapper.AuthMFASetup)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/auth/mfa/verify", wrapper.AuthMFAVerify)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/auth/reauth", wrapper.AuthReauth)
 	})
 
 	return r

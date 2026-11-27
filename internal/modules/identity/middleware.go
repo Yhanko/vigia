@@ -5,8 +5,10 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/Yhanko/vigia/internal/modules/identity/session"
+	"github.com/Yhanko/vigia/internal/platform/clock"
 	"github.com/Yhanko/vigia/internal/platform/httpserver"
 )
 
@@ -65,6 +67,42 @@ func CSRFMiddleware(sessions *session.Codec, allowedOrigins []string) func(http.
 			next.ServeHTTP(w, r)
 		})
 	}
+}
+
+// RequireRecentAuth enforces a fresh authentication window (default 10m) on
+// high-risk operations (ADR-005 §3.1, docs/plans/1.2-identity.md §7.4).
+func RequireRecentAuth(clk clock.Clock, window time.Duration) func(http.Handler) http.Handler {
+	if clk == nil {
+		clk = clock.System{}
+	}
+	if window <= 0 {
+		window = session.DefaultReauthWindow
+	}
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			active, ok := ActiveSessionFromContext(r.Context())
+			if !ok {
+				httpserver.WriteError(w, r, http.StatusUnauthorized, "UNAUTHENTICATED", "Authentication is required.")
+				return
+			}
+			if clk.Now().UTC().Sub(active.LastAuthAt) > window {
+				httpserver.WriteError(w, r, http.StatusUnauthorized, "REAUTH_REQUIRED", "Recent authentication is required for this operation.")
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+// CheckPrivilegedMFA enforces MFA_REQUIRED_FOR_PRIVILEGED for owner/admin roles (§7.4).
+func CheckPrivilegedMFA(enforce bool, active ActiveSession, role string) bool {
+	if !enforce {
+		return true
+	}
+	if (role == "owner" || role == "admin") && !active.UserMFAEnabled {
+		return false
+	}
+	return true
 }
 
 func authenticateCookie(w http.ResponseWriter, r *http.Request, svc *Service, sessions *session.Codec) (ActiveSession, bool) {

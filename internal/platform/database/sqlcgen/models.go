@@ -69,6 +69,8 @@ type Session struct {
 	IpPrefix          *string            `json:"ip_prefix"`
 	UserAgent         *string            `json:"user_agent"`
 	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+	MfaPending        bool               `json:"mfa_pending"`
+	MfaFailedAttempts int16              `json:"mfa_failed_attempts"`
 }
 
 type Team struct {
@@ -98,6 +100,7 @@ type User struct {
 	Status             string             `json:"status"`
 	CreatedAt          pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt          pgtype.Timestamptz `json:"updated_at"`
+	MfaLastUsedStep    *int64             `json:"mfa_last_used_step"`
 }
 
 type UserToken struct {

@@ -74,8 +74,9 @@ type Config struct {
 	IngestMaxBatchItems   int
 	QueryMaxRangeDays     int
 
-	SMTPURL         string
-	VAPIDPublicKey  string
+	SMTPURL                  string
+	MFARequiredForPrivileged bool
+	VAPIDPublicKey           string
 	VAPIDPrivateKey Secret
 	VAPIDSubject    string
 }
@@ -268,6 +269,15 @@ func LoadFrom(getenv func(string) string) (Config, error) {
 			return Config{}, fmt.Errorf("invalid SMTP_URL: must be a valid smtp:// or smtps:// URL")
 		}
 		cfg.SMTPURL = v
+	}
+
+	cfg.MFARequiredForPrivileged = cfg.AppEnv != "development"
+	if v := strings.TrimSpace(getenv("MFA_REQUIRED_FOR_PRIVILEGED")); v != "" {
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			return Config{}, fmt.Errorf("invalid MFA_REQUIRED_FOR_PRIVILEGED %q: must be boolean", v)
+		}
+		cfg.MFARequiredForPrivileged = b
 	}
 
 	cfg.VAPIDPublicKey = strings.TrimSpace(getenv("VAPID_PUBLIC_KEY"))
