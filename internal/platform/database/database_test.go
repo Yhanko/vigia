@@ -1,6 +1,7 @@
 package database
 
 import (
+	"context"
 	"testing"
 	"time"
 )
@@ -34,6 +35,21 @@ func TestParsePoolConfigAppliesLimits(t *testing.T) {
 		}
 		if _, exists := cfg.ConnConfig.RuntimeParams["statement_timeout"]; exists {
 			t.Fatalf("statement_timeout should not be set when duration is zero")
+		}
+	})
+
+	t.Run("max conns = 0 returns error", func(t *testing.T) {
+		if _, err := parsePoolConfig(dsn, PoolOptions{MaxConns: 0}); err == nil {
+			t.Fatal("expected error for MaxConns=0, got nil")
+		}
+		if _, err := NewPool(context.Background(), dsn, PoolOptions{MaxConns: 0}); err == nil {
+			t.Fatal("expected NewPool error for MaxConns=0, got nil")
+		}
+	})
+
+	t.Run("negative max conns returns error", func(t *testing.T) {
+		if _, err := parsePoolConfig(dsn, PoolOptions{MaxConns: -5}); err == nil {
+			t.Fatal("expected error for MaxConns=-5, got nil")
 		}
 	})
 }
