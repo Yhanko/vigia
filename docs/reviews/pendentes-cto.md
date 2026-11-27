@@ -63,3 +63,11 @@
 - [x] **34. `DELETE` físico em `projects` e `api_credentials`:** ambos são soft-delete/revogação, mas `vigia_app` tem `DELETE`. Migration `00007` com `REVOKE DELETE` nas duas (como o item 9 em `organizations`), actualizar o teste-guarda e confirmar que nenhum código faz `DELETE` nessas tabelas.
 - [x] **35. Re-autenticação sem limite por sessão:** `Reauth` só usa o limite por IP do login. Com um cookie roubado e vários IPs a password pode ser testada sem fim. Limite adicional de 5 falhas / 15 min por sessão; à 5.ª falha a sessão é revogada (`401 SESSION_EXPIRED`). Teste.
 - [x] **36. SQL escrito à mão nos serviços:** `credentials` e `organizations` têm 7 queries em strings dentro do Go. Passar para `queries/*.sql` (ADR-014) para entrarem no `sqlc diff` e na revisão de schema.
+
+## Re-revisão da porta da Fase 1 — 2026-11-27 (fatia F1.5)
+
+> Commits `a7d3103..8a2040d` revistos. Os itens 27–36 estão fechados no código e com testes negativos. Verificação do CTO nesta máquina: build, `go vet` e todos os testes unitários verdes; testes de integração verdes em todos os pacotes (`database`, `sqlcgen`, `identity`, `organizations`, `queue`, `ratelimit`, `mailer`, `tests/e2e`, `tests/security` incluindo o backup/restore com `age`). As falhas que apareceram foram só de arranque de contentores no Docker Desktop local (Ryuk/timeout), confirmadas ao repetir os pacotes sozinhos.
+>
+> **Veredicto: porta da Fase 1 APROVADA pelo CTO**, com três condições antes de abrir a Fase 2: (1) CI verde no GitHub para o push destes commits; (2) branch protection em `staging` e `main` (👔 CEO); (3) autorização do CEO. A Fase 2 exige ainda os ADR-003, ADR-004, ADR-009 e ADR-017 (🧭 CTO), que entram antes da primeira tarefa da 2.x.
+
+- Nota (não bloqueante): o `graphify update` alterou o `.gitignore` (removeu `graphify-out`) sem commit; o CTO repôs. O `graphify-out/` nunca entra no repositório.

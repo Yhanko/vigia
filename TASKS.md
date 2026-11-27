@@ -119,7 +119,7 @@
 | Fase | Tema | Estado | Critério de saída |
 |---|---|---|---|
 | 0 | Discovery, arquitectura e contratos | `[x]` (porta aprovada em 2026-11-26) | Scope aprovado, ADRs da fase seguinte escritos, riscos listados |
-| 1 | Fundação do backend (auth, orgs, projectos, credenciais, CI) | `[~]` **← fase activa** (1.0 e 1.1 quase completas) | Auth + isolamento de tenant em E2E; pipeline verde; backup/restore testado |
+| 1 | Fundação do backend (auth, orgs, projectos, credenciais, CI) | `[~]` **← fase activa** (porta aprovada pelo CTO em 2026-11-27; falta CI verde do push, branch protection 👔 e autorização do CEO) | Auth + isolamento de tenant em E2E; pipeline verde; backup/restore testado |
 | **2** | **MVP: Error tracking compatível Sentry + alertas + email/Telegram/WhatsApp + UI mínima + go-live** | `[ ]` | SDKs Sentry de ≥ 5 plataformas enviam erros só com troca de DSN; alerta → notificação nos 3 canais com falhas simuladas; go-live mínimo aprovado |
 | 3 | Métricas e ingestão de telemetria | `[ ]` | Load test base aprovado; sobrecarga documentada; retenção validada |
 | 4 | Alertas de métricas, incidentes e tempo real (SSE) | `[ ]` | E2E ingest → alerta → incidente → notificação |
@@ -325,7 +325,7 @@
 - [x] CI completo: `sqlc diff`, `oapi-codegen` sem diferenças, testes de integração, validação de migrations (up → down → up) (§16.1)
 - [x] Backup e restore encriptado do PostgreSQL testado (`pg_dump`/`pg_restore` com owners/ACLs + `age` v1.2.1 por chave pública + `vigia db ensure-roles` + `scripts/verify-restore.sh`) + runbook (`docs/runbooks/postgres-backup-restore.md`) (§16.6)
 - [x] Decisão e aplicação de **RLS** como defesa em profundidade (`SET LOCAL app.organization_id` dentro de `WithTenantTx`) (§8.6, §11.1)
-- [~] **Revisão de segurança antes de iniciar a ingestão** (§20.2 passo 12) — a primeira ingestão é a compatível Sentry da Fase 2 🧭 *(feita pelo CTO em 2026-11-27: não aprovada; fechar pendentes 27–36 e o CTO revê de novo)*
+- [x] **Revisão de segurança antes de iniciar a ingestão** (§20.2 passo 12) — a primeira ingestão é a compatível Sentry da Fase 2 🧭 *(CTO, 2026-11-27: primeira revisão não aprovada, pendentes 27–36 fechados na F1.5 e re-revistos; aprovada)*
 
 ---
 
