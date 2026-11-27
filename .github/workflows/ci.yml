@@ -46,7 +46,7 @@ jobs:
           go generate ./...
           git diff --exit-code
       - name: lint da spec OpenAPI (redocly)
-        run: docker run --rm -e REDOCLY_TELEMETRY=off -v "$PWD:/spec" redocly/cli:1.34.5 lint /spec/api/openapi.yaml
+        run: docker run --rm -e REDOCLY_TELEMETRY=off -v "$PWD:/spec:ro" redocly/cli:1.34.5@sha256:187c9838a3455d6e7820a19515982beafa26eb602949a27722976a85a73ea5ff lint /spec/api/openapi.yaml
       - uses: golangci/golangci-lint-action@v9
         with:
           version: v2.15.0
@@ -79,7 +79,7 @@ jobs:
         with:
           go-version-file: go.mod
       - name: go test -race -tags=integration
-        run: go test -race -count=1 -tags=integration -v ./internal/platform/database/...
+        run: go test -race -count=1 -tags=integration -v ./...
 
   security:
     name: security (govulncheck, gitleaks)
