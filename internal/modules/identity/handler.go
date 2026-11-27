@@ -132,6 +132,63 @@ func (h *Handler) AuthRefresh(w http.ResponseWriter, r *http.Request, params api
 	h.writeAuthSession(w, res)
 }
 
+// AuthVerifyEmail handles POST /api/v1/auth/verify-email.
+func (h *Handler) AuthVerifyEmail(w http.ResponseWriter, r *http.Request) {
+	if !isAllowedOrigin(r.Header.Get("Origin"), h.allowedOrigins) {
+		httpserver.WriteError(w, r, http.StatusForbidden, "CSRF_INVALID", "Invalid or missing request origin.")
+		return
+	}
+	var req api.VerifyEmailRequest
+	if !httpserver.DecodeJSON(w, r, &req) {
+		return
+	}
+	if err := h.svc.VerifyEmail(r.Context(), req.Token, h.extractRequestMeta(r)); err != nil {
+		h.writeServiceError(w, r, err)
+		return
+	}
+	httpserver.WriteJSON(w, http.StatusOK, api.AcceptedMessageResponse{
+		Message: "Email address verified.",
+	})
+}
+
+// AuthPasswordForgot handles POST /api/v1/auth/password/forgot.
+func (h *Handler) AuthPasswordForgot(w http.ResponseWriter, r *http.Request) {
+	if !isAllowedOrigin(r.Header.Get("Origin"), h.allowedOrigins) {
+		httpserver.WriteError(w, r, http.StatusForbidden, "CSRF_INVALID", "Invalid or missing request origin.")
+		return
+	}
+	var req api.PasswordForgotRequest
+	if !httpserver.DecodeJSON(w, r, &req) {
+		return
+	}
+	if err := h.svc.ForgotPassword(r.Context(), req.Email, h.extractRequestMeta(r)); err != nil {
+		h.writeServiceError(w, r, err)
+		return
+	}
+	httpserver.WriteJSON(w, http.StatusAccepted, api.AcceptedMessageResponse{
+		Message: "If an account exists for this email, instructions have been sent.",
+	})
+}
+
+// AuthPasswordReset handles POST /api/v1/auth/password/reset.
+func (h *Handler) AuthPasswordReset(w http.ResponseWriter, r *http.Request) {
+	if !isAllowedOrigin(r.Header.Get("Origin"), h.allowedOrigins) {
+		httpserver.WriteError(w, r, http.StatusForbidden, "CSRF_INVALID", "Invalid or missing request origin.")
+		return
+	}
+	var req api.PasswordResetRequest
+	if !httpserver.DecodeJSON(w, r, &req) {
+		return
+	}
+	if err := h.svc.ResetPassword(r.Context(), req.Token, req.Password, h.extractRequestMeta(r)); err != nil {
+		h.writeServiceError(w, r, err)
+		return
+	}
+	httpserver.WriteJSON(w, http.StatusOK, api.AcceptedMessageResponse{
+		Message: "Password has been reset.",
+	})
+}
+
 func (h *Handler) authenticateAndVerifyCSRF(w http.ResponseWriter, r *http.Request, csrfToken string) (ActiveSession, bool) {
 	active, ok := authenticateCookie(w, r, h.svc, h.sessions)
 	if !ok {

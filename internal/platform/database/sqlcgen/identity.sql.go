@@ -11,6 +11,35 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const consumeUserToken = `-- name: ConsumeUserToken :one
+UPDATE user_tokens
+SET used_at = $3::timestamptz
+WHERE token_hash = $1
+  AND kind = $2
+  AND used_at IS NULL
+  AND (expires_at IS NULL OR expires_at > $3::timestamptz)
+RETURNING id, user_id, kind
+`
+
+type ConsumeUserTokenParams struct {
+	TokenHash []byte             `json:"token_hash"`
+	Kind      string             `json:"kind"`
+	Now       pgtype.Timestamptz `json:"now"`
+}
+
+type ConsumeUserTokenRow struct {
+	ID     pgtype.UUID `json:"id"`
+	UserID pgtype.UUID `json:"user_id"`
+	Kind   string      `json:"kind"`
+}
+
+func (q *Queries) ConsumeUserToken(ctx context.Context, arg ConsumeUserTokenParams) (ConsumeUserTokenRow, error) {
+	row := q.db.QueryRow(ctx, consumeUserToken, arg.TokenHash, arg.Kind, arg.Now)
+	var i ConsumeUserTokenRow
+	err := row.Scan(&i.ID, &i.UserID, &i.Kind)
+	return i, err
+}
+
 const createSession = `-- name: CreateSession :one
 INSERT INTO sessions (
     id,
@@ -105,6 +134,30 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, e
 		&i.UpdatedAt,
 	)
 	return i, err
+}
+
+const createUserToken = `-- name: CreateUserToken :exec
+INSERT INTO user_tokens (id, user_id, kind, token_hash, expires_at)
+VALUES ($1, $2, $3, $4, $5)
+`
+
+type CreateUserTokenParams struct {
+	ID        pgtype.UUID        `json:"id"`
+	UserID    pgtype.UUID        `json:"user_id"`
+	Kind      string             `json:"kind"`
+	TokenHash []byte             `json:"token_hash"`
+	ExpiresAt pgtype.Timestamptz `json:"expires_at"`
+}
+
+func (q *Queries) CreateUserToken(ctx context.Context, arg CreateUserTokenParams) error {
+	_, err := q.db.Exec(ctx, createUserToken,
+		arg.ID,
+		arg.UserID,
+		arg.Kind,
+		arg.TokenHash,
+		arg.ExpiresAt,
+	)
+	return err
 }
 
 const getActiveSessionByTokenHash = `-- name: GetActiveSessionByTokenHash :one
@@ -285,6 +338,42 @@ func (q *Queries) InsertGlobalAuditLog(ctx context.Context, arg InsertGlobalAudi
 		arg.RequestID,
 		arg.Changes,
 	)
+	return err
+}
+
+const invalidateUserTokensByKind = `-- name: InvalidateUserTokensByKind :exec
+UPDATE user_tokens
+SET used_at = $3::timestamptz
+WHERE user_id = $1
+  AND kind = $2
+  AND used_at IS NULL
+`
+
+type InvalidateUserTokensByKindParams struct {
+	UserID pgtype.UUID        `json:"user_id"`
+	Kind   string             `json:"kind"`
+	UsedAt pgtype.Timestamptz `json:"used_at"`
+}
+
+func (q *Queries) InvalidateUserTokensByKind(ctx context.Context, arg InvalidateUserTokensByKindParams) error {
+	_, err := q.db.Exec(ctx, invalidateUserTokensByKind, arg.UserID, arg.Kind, arg.UsedAt)
+	return err
+}
+
+const markUserEmailVerified = `-- name: MarkUserEmailVerified :exec
+UPDATE users
+SET email_verified_at = COALESCE(email_verified_at, $2::timestamptz),
+    updated_at = $2::timestamptz
+WHERE id = $1
+`
+
+type MarkUserEmailVerifiedParams struct {
+	ID         pgtype.UUID        `json:"id"`
+	VerifiedAt pgtype.Timestamptz `json:"verified_at"`
+}
+
+func (q *Queries) MarkUserEmailVerified(ctx context.Context, arg MarkUserEmailVerifiedParams) error {
+	_, err := q.db.Exec(ctx, markUserEmailVerified, arg.ID, arg.VerifiedAt)
 	return err
 }
 

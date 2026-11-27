@@ -212,6 +212,135 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
+  /auth/verify-email:
+    post:
+      operationId: authVerifyEmail
+      summary: Verify a user email address using a single-use token
+      security: []
+      tags:
+        - auth
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VerifyEmailRequest"
+      responses:
+        "200":
+          description: Email verified
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AcceptedMessageResponse"
+        "400":
+          description: Invalid, expired, or already-used verification token (`VALIDATION_FAILED`)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Invalid or missing Origin (`CSRF_INVALID`)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        default:
+          description: Error response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /auth/password/forgot:
+    post:
+      operationId: authPasswordForgot
+      summary: Request a password reset email
+      description: >
+        Always returns a generic 202 response to prevent account enumeration (ADR-005).
+      security: []
+      tags:
+        - auth
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PasswordForgotRequest"
+      responses:
+        "202":
+          description: Password reset request accepted (generic anti-enumeration response)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AcceptedMessageResponse"
+        "400":
+          description: Invalid JSON or email (`INVALID_JSON`, `VALIDATION_FAILED`)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Invalid or missing Origin (`CSRF_INVALID`)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+        default:
+          description: Error response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /auth/password/reset:
+    post:
+      operationId: authPasswordReset
+      summary: Reset password using a single-use reset token and revoke all sessions
+      security: []
+      tags:
+        - auth
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PasswordResetRequest"
+      responses:
+        "200":
+          description: Password updated and all active sessions revoked
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AcceptedMessageResponse"
+        "400":
+          description: Invalid token or password policy failure (`VALIDATION_FAILED`)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Invalid or missing Origin (`CSRF_INVALID`)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+        default:
+          description: Error response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
 components:
   parameters:
     CSRFTokenHeader:
@@ -427,3 +556,43 @@ components:
         expiresAt:
           type: string
           format: date-time
+
+    VerifyEmailRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - token
+      properties:
+        token:
+          type: string
+          minLength: 1
+          maxLength: 256
+
+    PasswordForgotRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - email
+      properties:
+        email:
+          type: string
+          format: email
+          x-go-type: string
+          maxLength: 254
+
+    PasswordResetRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - token
+        - password
+      properties:
+        token:
+          type: string
+          minLength: 1
+          maxLength: 256
+        password:
+          type: string
+          format: password
+          minLength: 12
+          maxLength: 128

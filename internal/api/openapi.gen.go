@@ -65,6 +65,17 @@ type LoginRequest struct {
 	Password string `json:"password"`
 }
 
+// PasswordForgotRequest defines model for PasswordForgotRequest.
+type PasswordForgotRequest struct {
+	Email string `json:"email"`
+}
+
+// PasswordResetRequest defines model for PasswordResetRequest.
+type PasswordResetRequest struct {
+	Password string `json:"password"`
+	Token    string `json:"token"`
+}
+
 // RegisterRequest defines model for RegisterRequest.
 type RegisterRequest struct {
 	Email    string `json:"email"`
@@ -85,6 +96,11 @@ type StatusResponse struct {
 
 	// Version Example: dev
 	Version string `json:"version"`
+}
+
+// VerifyEmailRequest defines model for VerifyEmailRequest.
+type VerifyEmailRequest struct {
+	Token string `json:"token"`
 }
 
 // CSRFTokenHeader defines model for CSRFTokenHeader.
@@ -111,8 +127,17 @@ type AuthRefreshParams struct {
 // AuthLoginJSONRequestBody defines body for AuthLogin for application/json ContentType.
 type AuthLoginJSONRequestBody = LoginRequest
 
+// AuthPasswordForgotJSONRequestBody defines body for AuthPasswordForgot for application/json ContentType.
+type AuthPasswordForgotJSONRequestBody = PasswordForgotRequest
+
+// AuthPasswordResetJSONRequestBody defines body for AuthPasswordReset for application/json ContentType.
+type AuthPasswordResetJSONRequestBody = PasswordResetRequest
+
 // AuthRegisterJSONRequestBody defines body for AuthRegister for application/json ContentType.
 type AuthRegisterJSONRequestBody = RegisterRequest
+
+// AuthVerifyEmailJSONRequestBody defines body for AuthVerifyEmail for application/json ContentType.
+type AuthVerifyEmailJSONRequestBody = VerifyEmailRequest
 
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
@@ -122,12 +147,21 @@ type ServerInterface interface {
 	// AuthLogout Revoke the active session and clear the session cookie
 	// (POST /auth/logout)
 	AuthLogout(w http.ResponseWriter, r *http.Request, params AuthLogoutParams)
+	// AuthPasswordForgot Request a password reset email
+	// (POST /auth/password/forgot)
+	AuthPasswordForgot(w http.ResponseWriter, r *http.Request)
+	// AuthPasswordReset Reset password using a single-use reset token and revoke all sessions
+	// (POST /auth/password/reset)
+	AuthPasswordReset(w http.ResponseWriter, r *http.Request)
 	// AuthRefresh Rotate and extend the active sliding session
 	// (POST /auth/refresh)
 	AuthRefresh(w http.ResponseWriter, r *http.Request, params AuthRefreshParams)
 	// AuthRegister Register a new user account
 	// (POST /auth/register)
 	AuthRegister(w http.ResponseWriter, r *http.Request)
+	// AuthVerifyEmail Verify a user email address using a single-use token
+	// (POST /auth/verify-email)
+	AuthVerifyEmail(w http.ResponseWriter, r *http.Request)
 	// GetStatus API status and build metadata
 	// (GET /status)
 	GetStatus(w http.ResponseWriter, r *http.Request)
@@ -148,6 +182,18 @@ func (_ Unimplemented) AuthLogout(w http.ResponseWriter, r *http.Request, params
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// AuthPasswordForgot Request a password reset email
+// (POST /auth/password/forgot)
+func (_ Unimplemented) AuthPasswordForgot(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// AuthPasswordReset Reset password using a single-use reset token and revoke all sessions
+// (POST /auth/password/reset)
+func (_ Unimplemented) AuthPasswordReset(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // AuthRefresh Rotate and extend the active sliding session
 // (POST /auth/refresh)
 func (_ Unimplemented) AuthRefresh(w http.ResponseWriter, r *http.Request, params AuthRefreshParams) {
@@ -157,6 +203,12 @@ func (_ Unimplemented) AuthRefresh(w http.ResponseWriter, r *http.Request, param
 // AuthRegister Register a new user account
 // (POST /auth/register)
 func (_ Unimplemented) AuthRegister(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// AuthVerifyEmail Verify a user email address using a single-use token
+// (POST /auth/verify-email)
+func (_ Unimplemented) AuthVerifyEmail(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -234,6 +286,34 @@ func (siw *ServerInterfaceWrapper) AuthLogout(w http.ResponseWriter, r *http.Req
 	handler.ServeHTTP(w, r)
 }
 
+// AuthPasswordForgot operation middleware
+func (siw *ServerInterfaceWrapper) AuthPasswordForgot(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.AuthPasswordForgot(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// AuthPasswordReset operation middleware
+func (siw *ServerInterfaceWrapper) AuthPasswordReset(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.AuthPasswordReset(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // AuthRefresh operation middleware
 func (siw *ServerInterfaceWrapper) AuthRefresh(w http.ResponseWriter, r *http.Request) {
 
@@ -284,6 +364,20 @@ func (siw *ServerInterfaceWrapper) AuthRegister(w http.ResponseWriter, r *http.R
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.AuthRegister(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// AuthVerifyEmail operation middleware
+func (siw *ServerInterfaceWrapper) AuthVerifyEmail(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.AuthVerifyEmail(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -435,6 +529,15 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/auth/refresh", wrapper.AuthRefresh)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/auth/verify-email", wrapper.AuthVerifyEmail)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/auth/password/forgot", wrapper.AuthPasswordForgot)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/auth/password/reset", wrapper.AuthPasswordReset)
 	})
 
 	return r

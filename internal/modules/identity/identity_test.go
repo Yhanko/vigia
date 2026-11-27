@@ -25,12 +25,19 @@ import (
 
 // ─── In-memory fakes (Liskov-compliant with PostgresStore & RedisLimiter) ────
 
+type memToken struct {
+	rec  identity.UserTokenRecord
+	used bool
+}
+
 type memStore struct {
 	mu       sync.Mutex
 	users    map[string]identity.User          // by normalized email
 	usersID  map[string]identity.User          // by id
+	verified map[string]time.Time              // by user id
 	sessions map[string]identity.SessionRecord // by id
 	revoked  map[string]time.Time
+	tokens   []memToken
 	audits   []identity.AuditEvent
 }
 
@@ -38,6 +45,7 @@ func newMemStore() *memStore {
 	return &memStore{
 		users:    make(map[string]identity.User),
 		usersID:  make(map[string]identity.User),
+		verified: make(map[string]time.Time),
 		sessions: make(map[string]identity.SessionRecord),
 		revoked:  make(map[string]time.Time),
 	}
@@ -62,6 +70,79 @@ func (m *memStore) GetUserByEmail(_ context.Context, email string) (identity.Use
 		return identity.User{}, identity.ErrNotFound
 	}
 	return u, nil
+}
+
+func (m *memStore) GetUserByID(_ context.Context, userID string) (identity.User, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	u, ok := m.usersID[userID]
+	if !ok {
+		return identity.User{}, identity.ErrNotFound
+	}
+	return u, nil
+}
+
+func (m *memStore) CreateUserToken(_ context.Context, rec identity.UserTokenRecord) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.tokens = append(m.tokens, memToken{rec: rec})
+	return nil
+}
+
+func (m *memStore) ReplaceUserToken(_ context.Context, rec identity.UserTokenRecord, _ time.Time) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i := range m.tokens {
+		if m.tokens[i].rec.UserID == rec.UserID && m.tokens[i].rec.Kind == rec.Kind {
+			m.tokens[i].used = true
+		}
+	}
+	m.tokens = append(m.tokens, memToken{rec: rec})
+	return nil
+}
+
+func (m *memStore) VerifyEmailByToken(_ context.Context, tokenHash []byte, now time.Time) (string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i := range m.tokens {
+		t := &m.tokens[i]
+		if t.used || t.rec.Kind != identity.TokenKindEmailVerify || !bytes.Equal(t.rec.TokenHash, tokenHash) {
+			continue
+		}
+		if t.rec.ExpiresAt != nil && !t.rec.ExpiresAt.After(now) {
+			return "", identity.ErrNotFound
+		}
+		t.used = true
+		m.verified[t.rec.UserID] = now
+		return t.rec.UserID, nil
+	}
+	return "", identity.ErrNotFound
+}
+
+func (m *memStore) ResetPasswordByToken(_ context.Context, tokenHash []byte, newPasswordHash string, now time.Time) (identity.User, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i := range m.tokens {
+		t := &m.tokens[i]
+		if t.used || t.rec.Kind != identity.TokenKindPasswordReset || !bytes.Equal(t.rec.TokenHash, tokenHash) {
+			continue
+		}
+		if t.rec.ExpiresAt != nil && !t.rec.ExpiresAt.After(now) {
+			return identity.User{}, identity.ErrNotFound
+		}
+		t.used = true
+		u := m.usersID[t.rec.UserID]
+		u.PasswordHash = newPasswordHash
+		m.usersID[u.ID] = u
+		m.users[u.Email] = u
+		for sid, s := range m.sessions {
+			if s.UserID == u.ID {
+				m.revoked[sid] = now
+			}
+		}
+		return u, nil
+	}
+	return identity.User{}, identity.ErrNotFound
 }
 
 func (m *memStore) UpdateUserPasswordHash(_ context.Context, userID, hash string, _ time.Time) error {
@@ -276,12 +357,31 @@ func (testAPIServer) GetStatus(w http.ResponseWriter, _ *http.Request) {
 	})
 }
 
+type sentEmail struct {
+	to      string
+	subject string
+	body    string
+}
+
+type fakeMailer struct {
+	mu   sync.Mutex
+	sent []sentEmail
+}
+
+func (f *fakeMailer) Send(_ context.Context, to, subject, body string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.sent = append(f.sent, sentEmail{to: to, subject: subject, body: body})
+	return nil
+}
+
 type harness struct {
 	router  http.Handler
 	svc     *identity.Service
 	store   *memStore
 	limiter *memLimiter
 	hasher  *spyHasher
+	mailer  *fakeMailer
 	codec   *session.Codec
 	clk     *clock.Fake
 	logs    *bytes.Buffer
@@ -318,12 +418,15 @@ func newHarness(t *testing.T, appEnv string) *harness {
 	if err != nil {
 		t.Fatal(err)
 	}
+	mail := &fakeMailer{}
 	svc, err := identity.NewService(identity.ServiceConfig{
 		Store:           store,
 		Hasher:          spy,
 		Sessions:        codec,
 		Limiter:         lim,
 		RateLimitSecret: secret,
+		Mailer:          mail,
+		AppURL:          "https://app.vigia.ao",
 		Clock:           clk,
 		Logger:          logger,
 	})
@@ -349,6 +452,7 @@ func newHarness(t *testing.T, appEnv string) *harness {
 		store:   store,
 		limiter: lim,
 		hasher:  spy,
+		mailer:  mail,
 		codec:   codec,
 		clk:     clk,
 		logs:    &logBuf,
@@ -736,5 +840,107 @@ func TestSessionAndCSRFMiddleware(t *testing.T) {
 	protected.ServeHTTP(rec2, req)
 	if rec2.Code != http.StatusUnauthorized || decodeErrCode(t, rec2) != "SESSION_EXPIRED" {
 		t.Fatalf("deactivated user protected POST = (%d, %s), want (401, SESSION_EXPIRED)", rec2.Code, rec2.Body.String())
+	}
+}
+
+func extractTokenFromEmail(t *testing.T, body string) string {
+	t.Helper()
+	const marker = "?token="
+	idx := strings.Index(body, marker)
+	if idx == -1 {
+		t.Fatalf("email body does not contain %q: %q", marker, body)
+	}
+	rest := body[idx+len(marker):]
+	if nl := strings.IndexAny(rest, "\r\n "); nl != -1 {
+		rest = rest[:nl]
+	}
+	return rest
+}
+
+func TestEmailVerificationAndPasswordResetFlow(t *testing.T) {
+	h := newHarness(t, "production")
+	pass1 := "vG9!xQ2#mK7$pR4@zN"
+	pass2 := "nZ4@rP7$kM2#qX9!gV"
+
+	// Register sends verification email with single-use 24h token.
+	reg := h.doJSON(http.MethodPost, "/api/v1/auth/register",
+		`{"email":"frank@example.com","name":"Frank","password":"`+pass1+`"}`, h.origin, "198.51.100.1", nil, "")
+	if reg.Code != http.StatusAccepted {
+		t.Fatalf("register = %d, want 202", reg.Code)
+	}
+	if len(h.mailer.sent) != 1 || h.mailer.sent[0].to != "frank@example.com" {
+		t.Fatalf("expected 1 verification email, got %+v", h.mailer.sent)
+	}
+	verifyTok := extractTokenFromEmail(t, h.mailer.sent[0].body)
+
+	// Verify email succeeds once, then rejects replay.
+	v1 := h.doJSON(http.MethodPost, "/api/v1/auth/verify-email", `{"token":"`+verifyTok+`"}`, h.origin, "198.51.100.1", nil, "")
+	if v1.Code != http.StatusOK {
+		t.Fatalf("verify-email = %d (%s), want 200", v1.Code, v1.Body.String())
+	}
+	v2 := h.doJSON(http.MethodPost, "/api/v1/auth/verify-email", `{"token":"`+verifyTok+`"}`, h.origin, "198.51.100.1", nil, "")
+	if v2.Code != http.StatusBadRequest || decodeErrCode(t, v2) != "VALIDATION_FAILED" {
+		t.Fatalf("reused verify-email = (%d, %s), want (400, VALIDATION_FAILED)", v2.Code, v2.Body.String())
+	}
+
+	// Login to obtain an active session that must be revoked by password reset.
+	loginRec := h.doJSON(http.MethodPost, "/api/v1/auth/login",
+		`{"email":"frank@example.com","password":"`+pass1+`"}`, h.origin, "198.51.100.2", nil, "")
+	if loginRec.Code != http.StatusOK {
+		t.Fatalf("login = %d, want 200", loginRec.Code)
+	}
+	activeCk := loginRec.Result().Cookies()[0]
+	var activeResp api.AuthSessionResponse
+	_ = json.NewDecoder(loginRec.Body).Decode(&activeResp)
+
+	// Password forgot: nonexistent email returns identical generic 202 (anti-enumeration).
+	fMissing := h.doJSON(http.MethodPost, "/api/v1/auth/password/forgot",
+		`{"email":"ghost@example.com"}`, h.origin, "198.51.100.3", nil, "")
+	if fMissing.Code != http.StatusAccepted {
+		t.Fatalf("forgot(nonexistent) = %d, want 202", fMissing.Code)
+	}
+
+	// Password forgot #1 then #2: #2 invalidates #1; 4th request for same email hits 429 (limit 3/15m).
+	f1 := h.doJSON(http.MethodPost, "/api/v1/auth/password/forgot",
+		`{"email":"frank@example.com"}`, h.origin, "198.51.100.4", nil, "")
+	f2 := h.doJSON(http.MethodPost, "/api/v1/auth/password/forgot",
+		`{"email":"frank@example.com"}`, h.origin, "198.51.100.4", nil, "")
+	f3 := h.doJSON(http.MethodPost, "/api/v1/auth/password/forgot",
+		`{"email":"frank@example.com"}`, h.origin, "198.51.100.4", nil, "")
+	f4 := h.doJSON(http.MethodPost, "/api/v1/auth/password/forgot",
+		`{"email":"frank@example.com"}`, h.origin, "198.51.100.4", nil, "")
+	if f1.Code != http.StatusAccepted || f2.Code != http.StatusAccepted || f3.Code != http.StatusAccepted {
+		t.Fatalf("first 3 forgot requests should be 202, got %d/%d/%d", f1.Code, f2.Code, f3.Code)
+	}
+	if f4.Code != http.StatusTooManyRequests || decodeErrCode(t, f4) != "RATE_LIMIT_EXCEEDED" {
+		t.Fatalf("4th forgot request = (%d, %s), want (429, RATE_LIMIT_EXCEEDED)", f4.Code, f4.Body.String())
+	}
+
+	tok1 := extractTokenFromEmail(t, h.mailer.sent[1].body)
+	tok3 := extractTokenFromEmail(t, h.mailer.sent[3].body)
+
+	// Invalidated tok1 must be rejected.
+	rOld := h.doJSON(http.MethodPost, "/api/v1/auth/password/reset",
+		`{"token":"`+tok1+`","password":"`+pass2+`"}`, h.origin, "198.51.100.4", nil, "")
+	if rOld.Code != http.StatusBadRequest {
+		t.Fatalf("reset with superseded token = %d, want 400", rOld.Code)
+	}
+
+	// Valid tok3 resets password, revokes all active sessions, and sends security email.
+	rOK := h.doJSON(http.MethodPost, "/api/v1/auth/password/reset",
+		`{"token":"`+tok3+`","password":"`+pass2+`"}`, h.origin, "198.51.100.4", nil, "")
+	if rOK.Code != http.StatusOK {
+		t.Fatalf("reset with valid token = %d (%s), want 200", rOK.Code, rOK.Body.String())
+	}
+	// Previous active session MUST now be revoked (401 SESSION_EXPIRED).
+	refAfterReset := h.doJSON(http.MethodPost, "/api/v1/auth/refresh", "", h.origin, "198.51.100.2", activeCk, activeResp.CsrfToken)
+	if refAfterReset.Code != http.StatusUnauthorized || decodeErrCode(t, refAfterReset) != "SESSION_EXPIRED" {
+		t.Fatalf("session after password reset = (%d, %s), want (401, SESSION_EXPIRED)", refAfterReset.Code, refAfterReset.Body.String())
+	}
+	// New password works for login.
+	loginNew := h.doJSON(http.MethodPost, "/api/v1/auth/login",
+		`{"email":"frank@example.com","password":"`+pass2+`"}`, h.origin, "198.51.100.5", nil, "")
+	if loginNew.Code != http.StatusOK {
+		t.Fatalf("login with new password = %d, want 200", loginNew.Code)
 	}
 }

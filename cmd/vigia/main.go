@@ -25,6 +25,7 @@ import (
 	"github.com/Yhanko/vigia/internal/platform/crypto"
 	"github.com/Yhanko/vigia/internal/platform/database"
 	"github.com/Yhanko/vigia/internal/platform/httpserver"
+	"github.com/Yhanko/vigia/internal/platform/mailer"
 	"github.com/Yhanko/vigia/internal/platform/queue"
 	"github.com/Yhanko/vigia/internal/platform/ratelimit"
 	"github.com/Yhanko/vigia/internal/platform/telemetry"
@@ -196,12 +197,21 @@ func runAPI() error {
 		if err != nil {
 			return err
 		}
+		var mailSender identity.Mailer
+		if cfg.SMTPURL != "" {
+			mailSender, err = mailer.NewSMTPMailer(cfg.SMTPURL, "no-reply@vigia.ao")
+			if err != nil {
+				return err
+			}
+		}
 		idSvc, err := identity.NewService(identity.ServiceConfig{
 			Store:           idStore,
 			Hasher:          idHasher,
 			Sessions:        idSessions,
 			Limiter:         limiter,
 			RateLimitSecret: []byte(cfg.SessionSecret.Value()),
+			Mailer:          mailSender,
+			AppURL:          cfg.AppURL,
 			Clock:           clk,
 			Logger:          logger,
 		})
@@ -323,6 +333,33 @@ func (s compositeAPIServer) AuthRefresh(w http.ResponseWriter, r *http.Request, 
 		return
 	}
 	s.identity.AuthRefresh(w, r, params)
+}
+
+func (s compositeAPIServer) AuthVerifyEmail(w http.ResponseWriter, r *http.Request) {
+	if s.identity == nil {
+		w.Header().Set("Retry-After", "5")
+		httpserver.WriteError(w, r, http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "Authentication service unavailable.")
+		return
+	}
+	s.identity.AuthVerifyEmail(w, r)
+}
+
+func (s compositeAPIServer) AuthPasswordForgot(w http.ResponseWriter, r *http.Request) {
+	if s.identity == nil {
+		w.Header().Set("Retry-After", "5")
+		httpserver.WriteError(w, r, http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "Authentication service unavailable.")
+		return
+	}
+	s.identity.AuthPasswordForgot(w, r)
+}
+
+func (s compositeAPIServer) AuthPasswordReset(w http.ResponseWriter, r *http.Request) {
+	if s.identity == nil {
+		w.Header().Set("Retry-After", "5")
+		httpserver.WriteError(w, r, http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "Authentication service unavailable.")
+		return
+	}
+	s.identity.AuthPasswordReset(w, r)
 }
 
 func buildAllowedOrigins(cfg config.Config) []string {

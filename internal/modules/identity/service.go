@@ -21,11 +21,18 @@ import (
 
 // Rate-limit defaults from docs/decisions/business-defaults.md §4.
 const (
-	RegisterLimitPerIP     = 5
-	RegisterWindow         = time.Hour
-	LoginLimitPerIP        = 10
-	LoginLimitPerAccountIP = 5
-	LoginWindow            = 15 * time.Minute
+	RegisterLimitPerIP            = 5
+	RegisterWindow                = time.Hour
+	LoginLimitPerIP               = 10
+	LoginLimitPerAccountIP        = 5
+	LoginWindow                   = 15 * time.Minute
+	PasswordForgotLimitPerEmail   = 3
+	PasswordForgotLimitPerIP      = 10
+	PasswordForgotWindow          = 15 * time.Minute
+	PasswordResetLimitPerIP       = 10
+	PasswordResetWindow           = 15 * time.Minute
+	VerifyEmailLimitPerIP         = 20
+	VerifyEmailWindow             = 15 * time.Minute
 
 	maxStoredUserAgentLen = 200
 )
@@ -89,16 +96,35 @@ type RequestMeta struct {
 	RequestID string
 }
 
+// UserTokenRecord holds the fields for inserting a hashed ephemeral token.
+type UserTokenRecord struct {
+	ID        string
+	UserID    string
+	Kind      string
+	TokenHash []byte
+	ExpiresAt *time.Time
+}
+
+// Mailer is the consumer-defined interface for sending transactional plain-text emails.
+type Mailer interface {
+	Send(ctx context.Context, to, subject, textBody string) error
+}
+
 // Store is the consumer-defined persistence interface for the identity service.
 type Store interface {
 	CreateUser(ctx context.Context, u User) (User, error)
 	GetUserByEmail(ctx context.Context, normalizedEmail string) (User, error)
+	GetUserByID(ctx context.Context, userID string) (User, error)
 	UpdateUserPasswordHash(ctx context.Context, userID, passwordHash string, updatedAt time.Time) error
 	DeactivateUser(ctx context.Context, userID, status string, now time.Time) error
 	CreateSession(ctx context.Context, s SessionRecord) error
 	GetActiveSessionByTokenHash(ctx context.Context, tokenHash []byte, now time.Time) (ActiveSession, error)
 	RevokeSession(ctx context.Context, sessionID string, revokedAt time.Time) error
 	RotateSession(ctx context.Context, oldSessionID string, next SessionRecord, revokedAt time.Time) error
+	CreateUserToken(ctx context.Context, rec UserTokenRecord) error
+	ReplaceUserToken(ctx context.Context, rec UserTokenRecord, now time.Time) error
+	VerifyEmailByToken(ctx context.Context, tokenHash []byte, now time.Time) (string, error)
+	ResetPasswordByToken(ctx context.Context, tokenHash []byte, newPasswordHash string, now time.Time) (User, error)
 	InsertGlobalAuditLog(ctx context.Context, ev AuditEvent) error
 }
 
@@ -124,17 +150,22 @@ type ServiceConfig struct {
 	Sessions        *session.Codec
 	Limiter         RateLimiter
 	RateLimitSecret []byte
+	Mailer          Mailer
+	AppURL          string
 	Clock           clock.Clock
 	Logger          *slog.Logger
 }
 
-// Service implements register, login, logout, refresh, and session authentication.
+// Service implements register, login, logout, refresh, email verification,
+// password reset, and session authentication.
 type Service struct {
 	store           Store
 	hasher          PasswordHasher
 	sessions        *session.Codec
 	limiter         RateLimiter
 	rateLimitSecret []byte
+	mailer          Mailer
+	appURL          string
 	clk             clock.Clock
 	logger          *slog.Logger
 }
@@ -169,6 +200,8 @@ func NewService(cfg ServiceConfig) (*Service, error) {
 		sessions:        cfg.Sessions,
 		limiter:         cfg.Limiter,
 		rateLimitSecret: secretCopy,
+		mailer:          cfg.Mailer,
+		appURL:          strings.TrimRight(strings.TrimSpace(cfg.AppURL), "/"),
 		clk:             clk,
 		logger:          cfg.Logger,
 	}, nil
@@ -232,7 +265,154 @@ func (s *Service) Register(ctx context.Context, in RegisterInput) error {
 		}
 		return fmt.Errorf("register create user: %w", err)
 	}
+
+	// Issue single-use email verification token (24h) and send email outside DB tx.
+	if rawTok, tErr := generateOpaqueToken(); tErr == nil {
+		if tokID, idErr := newUUIDv4(); idErr == nil {
+			exp := s.clk.Now().UTC().Add(EmailVerifyTokenTTL)
+			if cErr := s.store.CreateUserToken(ctx, UserTokenRecord{
+				ID:        tokID,
+				UserID:    userID,
+				Kind:      TokenKindEmailVerify,
+				TokenHash: hashUserToken(s.rateLimitSecret, TokenKindEmailVerify, rawTok),
+				ExpiresAt: &exp,
+			}); cErr == nil {
+				s.sendEmail(ctx, email, "Verify your Vigia email",
+					fmt.Sprintf("Hello %s,\n\nVerify your Vigia account by opening:\n%s/verify-email?token=%s\n\nThis link expires in 24 hours.\n", name, s.appURL, rawTok))
+			} else if s.logger != nil {
+				s.logger.Warn("failed to create email verification token", "user_id", userID, "error", cErr)
+			}
+		}
+	}
 	return nil
+}
+
+// VerifyEmail consumes a single-use 24h verification token and marks the user's
+// email as verified.
+func (s *Service) VerifyEmail(ctx context.Context, rawToken string, meta RequestMeta) error {
+	if err := s.checkRateLimit(ctx, "auth:verify_email:ip:"+meta.ClientIP, VerifyEmailLimitPerIP, VerifyEmailWindow); err != nil {
+		return err
+	}
+	rawToken = strings.TrimSpace(rawToken)
+	if rawToken == "" {
+		return &ValidationError{Field: "token", Message: "is invalid or expired"}
+	}
+
+	tokHash := hashUserToken(s.rateLimitSecret, TokenKindEmailVerify, rawToken)
+	userID, err := s.store.VerifyEmailByToken(ctx, tokHash, s.clk.Now().UTC())
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return &ValidationError{Field: "token", Message: "is invalid or expired"}
+		}
+		return fmt.Errorf("verify email: %w", err)
+	}
+
+	s.recordAudit(ctx, "user", userID, "auth.email_verified", "user", userID, "success", meta, nil)
+	return nil
+}
+
+// ForgotPassword initiates password recovery with strict rate limits (3/15m per
+// email and 10/15m per IP), invalidates previous reset tokens, and sends a
+// single-use 30-minute reset link outside any DB transaction (critical-flows.md §2).
+// Always returns nil on valid input (anti-enumeration).
+func (s *Service) ForgotPassword(ctx context.Context, rawEmail string, meta RequestMeta) error {
+	email, err := policy.NormalizeEmail(rawEmail)
+	if err != nil {
+		return &ValidationError{Field: "email", Message: "must be a valid email address"}
+	}
+
+	if err := s.checkRateLimit(ctx, "auth:pwforgot:ip:"+meta.ClientIP, PasswordForgotLimitPerIP, PasswordForgotWindow); err != nil {
+		return err
+	}
+	emailKey := "auth:pwforgot:email:" + ratelimit.HashIdentifier(s.rateLimitSecret, email)
+	if err := s.checkRateLimit(ctx, emailKey, PasswordForgotLimitPerEmail, PasswordForgotWindow); err != nil {
+		return err
+	}
+
+	user, err := s.store.GetUserByEmail(ctx, email)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return nil
+		}
+		return fmt.Errorf("forgot password lookup: %w", err)
+	}
+	if user.Status != "active" {
+		return nil
+	}
+
+	rawTok, err := generateOpaqueToken()
+	if err != nil {
+		return fmt.Errorf("forgot password generate token: %w", err)
+	}
+	tokID, err := newUUIDv4()
+	if err != nil {
+		return fmt.Errorf("forgot password generate token id: %w", err)
+	}
+	now := s.clk.Now().UTC()
+	exp := now.Add(PasswordResetTokenTTL)
+	if err := s.store.ReplaceUserToken(ctx, UserTokenRecord{
+		ID:        tokID,
+		UserID:    user.ID,
+		Kind:      TokenKindPasswordReset,
+		TokenHash: hashUserToken(s.rateLimitSecret, TokenKindPasswordReset, rawTok),
+		ExpiresAt: &exp,
+	}, now); err != nil {
+		return fmt.Errorf("forgot password store token: %w", err)
+	}
+
+	s.sendEmail(ctx, user.Email, "Reset your Vigia password",
+		fmt.Sprintf("Hello %s,\n\nA password reset was requested for your Vigia account.\nOpen the link below within 30 minutes:\n%s/reset-password?token=%s\n\nIf you did not request this, you can safely ignore this email.\n", user.Name, s.appURL, rawTok))
+	return nil
+}
+
+// ResetPassword validates the new password, consumes the single-use reset token,
+// updates password_hash, revokes ALL active sessions, records an audit event,
+// and sends a security notification email outside the DB transaction.
+func (s *Service) ResetPassword(ctx context.Context, rawToken, newPassword string, meta RequestMeta) error {
+	if err := s.checkRateLimit(ctx, "auth:pwreset:ip:"+meta.ClientIP, PasswordResetLimitPerIP, PasswordResetWindow); err != nil {
+		return err
+	}
+	rawToken = strings.TrimSpace(rawToken)
+	if rawToken == "" {
+		return &ValidationError{Field: "token", Message: "is invalid or expired"}
+	}
+	if err := policy.ValidatePassword(newPassword, ""); err != nil {
+		return mapPasswordPolicyError(err)
+	}
+
+	hash, err := s.hasher.Hash(ctx, newPassword)
+	if err != nil {
+		if errors.Is(err, password.ErrHasherBusy) {
+			return ErrServiceUnavailable
+		}
+		if errors.Is(err, password.ErrPasswordTooLong) {
+			return &ValidationError{Field: "password", Message: "must be at most 128 characters"}
+		}
+		return fmt.Errorf("reset password hash: %w", err)
+	}
+
+	tokHash := hashUserToken(s.rateLimitSecret, TokenKindPasswordReset, rawToken)
+	user, err := s.store.ResetPasswordByToken(ctx, tokHash, hash, s.clk.Now().UTC())
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return &ValidationError{Field: "token", Message: "is invalid or expired"}
+		}
+		return fmt.Errorf("reset password persist: %w", err)
+	}
+
+	s.recordAudit(ctx, "user", user.ID, "auth.password_reset", "user", user.ID, "success", meta, nil)
+	s.sendEmail(ctx, user.Email, "Your Vigia password was changed",
+		fmt.Sprintf("Hello %s,\n\nYour Vigia password has been reset and all active sessions have been signed out.\nIf you did not perform this action, contact support immediately.\n", user.Name))
+	return nil
+}
+
+func (s *Service) sendEmail(ctx context.Context, to, subject, body string) {
+	if s.mailer == nil {
+		return
+	}
+	if err := s.mailer.Send(ctx, to, subject, body); err != nil && s.logger != nil {
+		s.logger.Warn("failed to send transactional email", "subject", subject, "error", err)
+	}
 }
 
 // LoginInput holds user login parameters.

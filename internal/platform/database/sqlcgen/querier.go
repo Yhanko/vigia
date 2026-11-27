@@ -11,14 +11,18 @@ import (
 )
 
 type Querier interface {
+	ConsumeUserToken(ctx context.Context, arg ConsumeUserTokenParams) (ConsumeUserTokenRow, error)
 	CreateSession(ctx context.Context, arg CreateSessionParams) (Session, error)
 	// Identity core queries: users and sessions (ADR-005, TASKS 1.2 D3).
 	// Both tables are global (no organization_id).
 	CreateUser(ctx context.Context, arg CreateUserParams) (User, error)
+	CreateUserToken(ctx context.Context, arg CreateUserTokenParams) error
 	GetActiveSessionByTokenHash(ctx context.Context, arg GetActiveSessionByTokenHashParams) (GetActiveSessionByTokenHashRow, error)
 	GetUserByEmail(ctx context.Context, email string) (User, error)
 	GetUserByID(ctx context.Context, id pgtype.UUID) (User, error)
 	InsertGlobalAuditLog(ctx context.Context, arg InsertGlobalAuditLogParams) error
+	InvalidateUserTokensByKind(ctx context.Context, arg InvalidateUserTokensByKindParams) error
+	MarkUserEmailVerified(ctx context.Context, arg MarkUserEmailVerifiedParams) error
 	RevokeAllUserSessions(ctx context.Context, arg RevokeAllUserSessionsParams) (int64, error)
 	RevokeSession(ctx context.Context, arg RevokeSessionParams) (int64, error)
 	UpdateUserPasswordHash(ctx context.Context, arg UpdateUserPasswordHashParams) error

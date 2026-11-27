@@ -64,6 +64,146 @@ func (s *PostgresStore) GetUserByEmail(ctx context.Context, normalizedEmail stri
 	return mapUser(row), nil
 }
 
+func (s *PostgresStore) GetUserByID(ctx context.Context, userID string) (User, error) {
+	uid, err := toPGUUID(userID)
+	if err != nil {
+		return User{}, err
+	}
+	row, err := s.q.GetUserByID(ctx, uid)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return User{}, ErrNotFound
+		}
+		return User{}, fmt.Errorf("get user by id: %w", err)
+	}
+	return mapUser(row), nil
+}
+
+func (s *PostgresStore) CreateUserToken(ctx context.Context, rec UserTokenRecord) error {
+	tid, err := toPGUUID(rec.ID)
+	if err != nil {
+		return err
+	}
+	uid, err := toPGUUID(rec.UserID)
+	if err != nil {
+		return err
+	}
+	var exp pgtype.Timestamptz
+	if rec.ExpiresAt != nil {
+		exp = pgtype.Timestamptz{Time: rec.ExpiresAt.UTC(), Valid: true}
+	}
+	return s.q.CreateUserToken(ctx, sqlcgen.CreateUserTokenParams{
+		ID:        tid,
+		UserID:    uid,
+		Kind:      rec.Kind,
+		TokenHash: rec.TokenHash,
+		ExpiresAt: exp,
+	})
+}
+
+func (s *PostgresStore) ReplaceUserToken(ctx context.Context, rec UserTokenRecord, now time.Time) error {
+	tid, err := toPGUUID(rec.ID)
+	if err != nil {
+		return err
+	}
+	uid, err := toPGUUID(rec.UserID)
+	if err != nil {
+		return err
+	}
+	var exp pgtype.Timestamptz
+	if rec.ExpiresAt != nil {
+		exp = pgtype.Timestamptz{Time: rec.ExpiresAt.UTC(), Valid: true}
+	}
+	ts := pgtype.Timestamptz{Time: now.UTC(), Valid: true}
+	return database.WithTx(ctx, s.pool, func(tx pgx.Tx) error {
+		qtx := s.q.WithTx(tx)
+		if err := qtx.InvalidateUserTokensByKind(ctx, sqlcgen.InvalidateUserTokensByKindParams{
+			UserID: uid,
+			Kind:   rec.Kind,
+			UsedAt: ts,
+		}); err != nil {
+			return fmt.Errorf("invalidate previous tokens: %w", err)
+		}
+		if err := qtx.CreateUserToken(ctx, sqlcgen.CreateUserTokenParams{
+			ID:        tid,
+			UserID:    uid,
+			Kind:      rec.Kind,
+			TokenHash: rec.TokenHash,
+			ExpiresAt: exp,
+		}); err != nil {
+			return fmt.Errorf("create replacement token: %w", err)
+		}
+		return nil
+	})
+}
+
+func (s *PostgresStore) VerifyEmailByToken(ctx context.Context, tokenHash []byte, now time.Time) (string, error) {
+	ts := pgtype.Timestamptz{Time: now.UTC(), Valid: true}
+	var userID string
+	err := database.WithTx(ctx, s.pool, func(tx pgx.Tx) error {
+		qtx := s.q.WithTx(tx)
+		tok, err := qtx.ConsumeUserToken(ctx, sqlcgen.ConsumeUserTokenParams{
+			TokenHash: tokenHash,
+			Kind:      TokenKindEmailVerify,
+			Now:       ts,
+		})
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return ErrNotFound
+			}
+			return fmt.Errorf("consume email verify token: %w", err)
+		}
+		if err := qtx.MarkUserEmailVerified(ctx, sqlcgen.MarkUserEmailVerifiedParams{
+			ID:         tok.UserID,
+			VerifiedAt: ts,
+		}); err != nil {
+			return fmt.Errorf("mark email verified: %w", err)
+		}
+		userID = tok.UserID.String()
+		return nil
+	})
+	return userID, err
+}
+
+func (s *PostgresStore) ResetPasswordByToken(ctx context.Context, tokenHash []byte, newPasswordHash string, now time.Time) (User, error) {
+	ts := pgtype.Timestamptz{Time: now.UTC(), Valid: true}
+	var out User
+	err := database.WithTx(ctx, s.pool, func(tx pgx.Tx) error {
+		qtx := s.q.WithTx(tx)
+		tok, err := qtx.ConsumeUserToken(ctx, sqlcgen.ConsumeUserTokenParams{
+			TokenHash: tokenHash,
+			Kind:      TokenKindPasswordReset,
+			Now:       ts,
+		})
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return ErrNotFound
+			}
+			return fmt.Errorf("consume password reset token: %w", err)
+		}
+		if err := qtx.UpdateUserPasswordHash(ctx, sqlcgen.UpdateUserPasswordHashParams{
+			ID:           tok.UserID,
+			PasswordHash: newPasswordHash,
+			UpdatedAt:    ts,
+		}); err != nil {
+			return fmt.Errorf("update password hash: %w", err)
+		}
+		if _, err := qtx.RevokeAllUserSessions(ctx, sqlcgen.RevokeAllUserSessionsParams{
+			UserID:    tok.UserID,
+			RevokedAt: ts,
+		}); err != nil {
+			return fmt.Errorf("revoke all sessions on reset: %w", err)
+		}
+		row, err := qtx.GetUserByID(ctx, tok.UserID)
+		if err != nil {
+			return fmt.Errorf("get user after reset: %w", err)
+		}
+		out = mapUser(row)
+		return nil
+	})
+	return out, err
+}
+
 func (s *PostgresStore) UpdateUserPasswordHash(ctx context.Context, userID, passwordHash string, updatedAt time.Time) error {
 	uid, err := toPGUUID(userID)
 	if err != nil {

@@ -67,6 +67,32 @@ SET status = $2,
     updated_at = sqlc.arg(updated_at)::timestamptz
 WHERE id = $1;
 
+-- name: MarkUserEmailVerified :exec
+UPDATE users
+SET email_verified_at = COALESCE(email_verified_at, sqlc.arg(verified_at)::timestamptz),
+    updated_at = sqlc.arg(verified_at)::timestamptz
+WHERE id = $1;
+
+-- name: CreateUserToken :exec
+INSERT INTO user_tokens (id, user_id, kind, token_hash, expires_at)
+VALUES ($1, $2, $3, $4, $5);
+
+-- name: InvalidateUserTokensByKind :exec
+UPDATE user_tokens
+SET used_at = sqlc.arg(used_at)::timestamptz
+WHERE user_id = $1
+  AND kind = $2
+  AND used_at IS NULL;
+
+-- name: ConsumeUserToken :one
+UPDATE user_tokens
+SET used_at = sqlc.arg(now)::timestamptz
+WHERE token_hash = $1
+  AND kind = $2
+  AND used_at IS NULL
+  AND (expires_at IS NULL OR expires_at > sqlc.arg(now)::timestamptz)
+RETURNING id, user_id, kind;
+
 -- name: InsertGlobalAuditLog :exec
 INSERT INTO audit_logs (
     id,
