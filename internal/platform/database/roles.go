@@ -90,9 +90,15 @@ func EnsureRoles(ctx context.Context, adminDSN, appPassword string) error {
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	// Prevent ALTER ROLE ... PASSWORD from appearing in PostgreSQL DDL logs.
-	if _, err := tx.Exec(ctx, "SET LOCAL log_statement = 'none'"); err != nil {
-		return fmt.Errorf("ensure roles: silence log_statement: %w", err)
+	// Prevent ALTER ROLE ... PASSWORD from appearing in PostgreSQL DDL, slow-query, or error logs.
+	for _, setting := range []string{
+		"SET LOCAL log_statement = 'none'",
+		"SET LOCAL log_min_duration_statement = -1",
+		"SET LOCAL log_min_error_statement = 'panic'",
+	} {
+		if _, err := tx.Exec(ctx, setting); err != nil {
+			return fmt.Errorf("ensure roles: %s: %w", setting, err)
+		}
 	}
 
 	const createRolesSQL = `
