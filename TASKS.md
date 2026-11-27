@@ -323,7 +323,7 @@
 - [x] Testes de revogação imediata e de não-exposição de segredos em logs/respostas (§11.9)
 - [x] **E2E** (`tests/e2e/`): signup/login/MFA, organização + membros, projecto + ambiente, criar/revogar key, trilha de auditoria, negativo cross-tenant (§15.2 #1–4, #12–13)
 - [x] CI completo: `sqlc diff`, `oapi-codegen` sem diferenças, testes de integração, validação de migrations (up → down → up) (§16.1)
-- [~] Backup e restore encriptado do PostgreSQL testado (`pg_dump` + OpenSSL AES-256-CBC/PBKDF2) + runbook (`docs/runbooks/postgres-backup-restore.md`) (§16.6) *(o restore perde GRANTs e donos das funções — pendente CTO 31)*
+- [x] Backup e restore encriptado do PostgreSQL testado (`pg_dump`/`pg_restore` com owners/ACLs + `age` v1.2.1 por chave pública + `vigia db ensure-roles` + `scripts/verify-restore.sh`) + runbook (`docs/runbooks/postgres-backup-restore.md`) (§16.6)
 - [x] Decisão e aplicação de **RLS** como defesa em profundidade (`SET LOCAL app.organization_id` dentro de `WithTenantTx`) (§8.6, §11.1)
 - [~] **Revisão de segurança antes de iniciar a ingestão** (§20.2 passo 12) — a primeira ingestão é a compatível Sentry da Fase 2 🧭 *(feita pelo CTO em 2026-11-27: não aprovada; fechar pendentes 27–36 e o CTO revê de novo)*
 

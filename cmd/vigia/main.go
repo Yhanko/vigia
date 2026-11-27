@@ -47,6 +47,7 @@ const usage = `Usage: vigia <command>
 Commands:
   api                            Start the HTTP API server
   migrate [up|down|status|version]  Run embedded SQL database migrations (default: up)
+  db ensure-roles                Create/update PostgreSQL runtime roles (vigia_app, vigia_definer) without running migrations
   healthcheck                    Check local /health/live (for container HEALTHCHECK)
   version                        Print binary version
 
@@ -70,6 +71,13 @@ func main() {
 			action = os.Args[2]
 		}
 		err = runMigrate(action)
+	case "db":
+		if len(os.Args) >= 3 && os.Args[2] == "ensure-roles" {
+			err = runEnsureRoles()
+		} else {
+			fmt.Fprintln(os.Stderr, usage)
+			os.Exit(2)
+		}
 	case "healthcheck":
 		err = runHealthcheck()
 	case "version":
@@ -797,6 +805,38 @@ func runMigrate(action string) error {
 		return err
 	}
 	logger.Info("database migrations completed", "action", action)
+	return nil
+}
+
+// runEnsureRoles creates/updates cluster-global runtime roles (vigia_app, vigia_definer)
+// without executing schema migrations (required before pg_restore on a clean instance, CTO #31).
+func runEnsureRoles() error {
+	cfg, err := config.Load()
+	if err != nil {
+		return err
+	}
+	logger, err := telemetry.NewLogger(os.Stdout, cfg.LogLevel, "vigia-db", cfg.AppEnv)
+	if err != nil {
+		return err
+	}
+	slog.SetDefault(logger)
+
+	if cfg.DatabaseAppPassword.IsEmpty() {
+		return errors.New("DATABASE_APP_PASSWORD_FILE is required to ensure runtime roles")
+	}
+	dsn, err := cfg.DatabaseDSN()
+	if err != nil {
+		return err
+	}
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	logger.Info("ensuring PostgreSQL runtime roles")
+	if err := database.EnsureRoles(ctx, dsn, cfg.DatabaseAppPassword.Value()); err != nil {
+		return err
+	}
+	logger.Info("PostgreSQL runtime roles ensured")
 	return nil
 }
 
