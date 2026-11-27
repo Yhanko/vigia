@@ -30,6 +30,8 @@ done
 echo "3. Checking restricted privileges (no DELETE on organizations; no UPDATE/DELETE on audit_logs)..."
 for check in \
   "organizations:DELETE" \
+  "projects:DELETE" \
+  "api_credentials:DELETE" \
   "audit_logs:UPDATE" \
   "audit_logs:DELETE"; do
   tbl="${check%%:*}"
