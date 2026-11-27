@@ -163,11 +163,16 @@ func (s *PostgresStore) RotateSession(ctx context.Context, oldSessionID string, 
 	}
 	return database.WithTx(ctx, s.pool, func(tx pgx.Tx) error {
 		qtx := s.q.WithTx(tx)
-		if _, err := qtx.RevokeSession(ctx, sqlcgen.RevokeSessionParams{
+		affected, err := qtx.RevokeSession(ctx, sqlcgen.RevokeSessionParams{
 			ID:        oldID,
 			RevokedAt: pgtype.Timestamptz{Time: revokedAt.UTC(), Valid: true},
-		}); err != nil {
+		})
+		if err != nil {
 			return fmt.Errorf("revoke old session: %w", err)
+		}
+		if affected == 0 {
+			// Another concurrent request already revoked/rotated this session (CTO #22).
+			return ErrSessionExpired
 		}
 		if _, err := qtx.CreateSession(ctx, nextParams); err != nil {
 			return fmt.Errorf("create rotated session: %w", err)

@@ -144,6 +144,12 @@ func (m *memStore) RevokeSession(_ context.Context, sessionID string, revokedAt 
 func (m *memStore) RotateSession(_ context.Context, oldSessionID string, next identity.SessionRecord, revokedAt time.Time) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if _, alreadyRevoked := m.revoked[oldSessionID]; alreadyRevoked {
+		return identity.ErrSessionExpired
+	}
+	if _, exists := m.sessions[oldSessionID]; !exists {
+		return identity.ErrSessionExpired
+	}
 	m.revoked[oldSessionID] = revokedAt
 	m.sessions[next.ID] = next
 	return nil
