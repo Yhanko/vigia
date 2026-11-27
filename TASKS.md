@@ -234,7 +234,7 @@
 ### 1.0 CI mínimo (antecipado — pré-requisito do Security Gate) (§16.1)
 > ⚠ O TASKS original punha o CI na 1.4, mas a Regra de Ouro exige `gosec`/`govulncheck` em **cada** módulo. Tem de existir antes da 1.2.
 
-- [~] `.github/workflows/ci.yml`: `gofmt -l`, `go vet`, `go mod tidy` sem diferenças, `golangci-lint` v2.15.0, `go test -race`, `govulncheck`, `gitleaks` (histórico completo), testes no container, build da imagem, `docker compose config` — *lint e govulncheck verdes localmente; falta a primeira execução no GitHub*
+- [x] `.github/workflows/ci.yml`: `gofmt -l`, `go vet`, `go mod tidy` sem diferenças, `golangci-lint` v2.15.0, `go test -race`, `govulncheck`, `gitleaks` (histórico completo), testes no container, build da imagem, `docker compose config` — *5 jobs verdes no GitHub Actions*
 - [x] `.golangci.yml`: `gosec`, `errcheck`, `bodyclose`, `noctx`, `errorlint`, `rowserrcheck`, `sqlclosecheck`, `forbidigo` (`http.Get`/`http.DefaultClient`/`fmt.Print` proibidos fora do CLI), `goimports`
 - [x] Fronteiras (§4.5): `depguard` impede `internal/platform` de importar `internal/modules` e proíbe `math/rand`, `log`, `io/ioutil`, `github.com/pkg/errors`. Entre módulos, a regra é estrutural: o código privado de cada módulo vive em `internal/modules/<x>/internal/` e o compilador do Go impede outros módulos de o importar
 - [x] Dependabot (`gomod`, `github-actions`, `docker`) com `cooldown` de 7 dias (§11.6)
@@ -285,46 +285,46 @@
 - [x] `internal/platform/crypto`: envelope encryption AES-256-GCM (DEK por registo, KEK de `ENCRYPTION_KEY_FILE`, `key_id` para rotação) conforme ADR-015 *(aprovado pelo CTO em 2026-11-26; normalização de UUIDs aplicada)* 🧭
 - [x] Migration: `users`, `sessions`, `organizations`, `memberships`, `invitations`, `teams`, `team_members`, `audit_logs` (§8.2) com índices a começar pelo tenant e `UNIQUE` da §8.6 *(migrations `00002`–`00004`, `EnsureRoles` SCRAM-SHA-256, RLS e teste-guarda no catálogo; aprovado pelo CTO em 2026-11-27 com os pendentes 9–13 fechados)* 🧭
 - [x] Padrão de repositório tenant-scoped (tipo `TenantID` obrigatório nas assinaturas) (§11.1) *(`database.TenantID` e `database.WithTenantTx`; aprovado pelo CTO em 2026-11-27)* 🧭
-- [~] `identity`: `POST /auth/register|login|logout|refresh`, sessões revogáveis, Argon2id, cookies `HttpOnly`/`Secure`/`SameSite` (§9.2, §10.3) *(D5–D6 aprovadas pelo CTO em 2026-11-27; falta fechar os pendentes 21–25)*
-- [ ] `identity`: `/auth/verify-email`, `/auth/password/forgot|reset`, `/auth/mfa/setup|verify` (TOTP) + códigos de recuperação (§10.3)
-- [ ] **MFA obrigatório para `owner`/`admin`** antes de produção (§10.3, §22)
-- [ ] **Re-autenticação** em operações de alto risco (criar/revogar keys, mudar roles, apagar org/projecto) (§10.3)
-- [ ] Envio de email transaccional mínimo (verificação/reset) via adaptador SMTP → Mailpit em dev (§7.7); o mesmo adaptador é reutilizado pelo canal de email da Fase 2
-- [ ] `organizations`: CRUD, memberships, convites (`/invitations/:token/accept`), teams (§9.2)
-- [ ] Transferência de ownership e eliminação de organização (soft delete + período de graça) (§25.1)
-- [ ] RBAC (`owner`, `admin`, `member`, `viewer`) com as permissões explícitas da §10.5, verificadas por middleware em cada request
-- [ ] `audit`: registo append-only (login/logout, MFA, roles, convites…) + `GET /organizations/:id/audit-logs` com `audit:read` e paginação por cursor (§7.10, §9.2)
+- [x] `identity`: `POST /auth/register|login|logout|refresh`, sessões revogáveis, Argon2id, cookies `HttpOnly`/`Secure`/`SameSite` (§9.2, §10.3) *(pendentes 21–26 fechados)*
+- [x] `identity`: `/auth/verify-email`, `/auth/password/forgot|reset`, `/auth/mfa/setup|verify` (TOTP) + códigos de recuperação (§10.3)
+- [x] **MFA obrigatório para `owner`/`admin`** antes de produção (§10.3, §22) *(`MFA_REQUIRED_FOR_PRIVILEGED`, default `true` fora de `development`)*
+- [x] **Re-autenticação** em operações de alto risco (criar/revogar keys, mudar roles, apagar org/projecto) (§10.3) *(`/auth/reauth` + `RequireRecentAuth`, janela de 10m)*
+- [x] Envio de email transaccional mínimo (verificação/reset) via adaptador SMTP → Mailpit em dev (§7.7); o mesmo adaptador é reutilizado pelo canal de email da Fase 2
+- [x] `organizations`: CRUD, memberships, convites (`/invitations/accept`), teams (§9.2)
+- [x] Transferência de ownership e eliminação de organização (soft delete + período de graça) (§25.1)
+- [x] RBAC (`owner`, `admin`, `member`, `viewer`) com as permissões explícitas da §10.5, verificadas no backend em cada operação
+- [x] `audit`: registo append-only (login/logout, MFA, roles, convites…) + `GET /organizations/:id/audit-logs` com `audit:read` e paginação por cursor (§7.10, §9.2)
 - **🔒 Blindagem de Segurança (1.2):**
-  - [x] Argon2id com salt CSPRNG + parâmetros documentados; comparação em tempo constante *(D1 aprovada pelo CTO em 2026-11-27; ver pendente 15)*
-  - [ ] Anti-enumeração de contas em login/registo/recuperação (respostas genéricas e timing consistente)
-  - [ ] Rate limit + lockout progressivo em `/auth/login`, `/auth/password/*`, `/auth/mfa/*`
-  - [ ] CSRF para cookie-auth (`SameSite` + token CSRF ou verificação de `Origin`) e rotação do ID de sessão no login/elevação de privilégio
-  - [ ] Tokens de convite/reset/verificação: CSPRNG ≥ 256 bits, guardados como hash, expiração curta, uso único
-  - [ ] Testes negativos de escalada de privilégios (`viewer`/`member` → acções de `admin`/`owner`; `admin` não remove `owner`) e cross-tenant
-  - [ ] `audit_logs` sem passwords, tokens, cookies nem segredos; tabela sem `UPDATE`/`DELETE` para o utilizador da aplicação
+  - [x] Argon2id com salt CSPRNG + parâmetros documentados; comparação em tempo constante *(D1 aprovada pelo CTO em 2026-11-27)*
+  - [x] Anti-enumeração de contas em login/registo/recuperação (respostas genéricas e timing consistente)
+  - [x] Rate limit + lockout progressivo em `/auth/login`, `/auth/password/*`, `/auth/mfa/*`
+  - [x] CSRF para cookie-auth (`SameSite` + token CSRF e verificação de `Origin`) e rotação do ID de sessão no login/elevação de privilégio
+  - [x] Tokens de convite/reset/verificação: CSPRNG ≥ 256 bits, guardados como hash, expiração curta, uso único
+  - [x] Testes negativos de escalada de privilégios (`viewer`/`member` → acções de `admin`/`owner`; `admin` não remove `owner`) e cross-tenant
+  - [x] `audit_logs` sem passwords, tokens, cookies nem segredos; tabela sem `UPDATE`/`DELETE` para o utilizador da aplicação
 
 ### 1.3 Projects, Environments e API Credentials
-- [ ] Migration: `projects`, `environments`, `api_credentials` (§8.2)
-- [ ] `projects`: CRUD projects e environments (`is_protected`) (§9.2)
-- [ ] `credentials`: CSPRNG ≥ 256 bits (`vg_ing_<prefix>_<secret>`, `vg_cli_<prefix>_<secret>`), HMAC-SHA256 com pepper, lookup por prefixo, tempo constante, scopes, expiração, rotação com overlap e revogação imediata (§10.1–10.2)
-- [ ] Middleware de autenticação por credencial que injecta `organization_id`/`project_id`/`environment_id` no contexto (§4.3)
-- [ ] Cache de credenciais validadas (Redis, TTL curto, prefixo de tenant) com invalidação na revogação
-- [ ] `last_used_at` (actualização assíncrona/agrupada, sem escrita por pedido) (§10.2)
-- [ ] Detecção de uso anómalo de keys (picos, IPs novos) → evento de auditoria (alerta real na Fase 4) (§10.2)
+- [x] Migration: `projects`, `environments`, `api_credentials` (§8.2) *(`00006_projects_environments_credentials.sql` com RLS fail-closed e `lookup_api_credential_by_prefix`)*
+- [x] `projects`: CRUD projects e environments (`is_protected`) (§9.2)
+- [x] `credentials`: CSPRNG ≥ 256 bits (`vg_ing_<prefix>_<secret>`, `vg_cli_<prefix>_<secret>`), HMAC-SHA256 com pepper, lookup por prefixo, tempo constante, scopes, expiração, rotação com overlap e revogação imediata (§10.1–10.2)
+- [x] Middleware de autenticação por credencial que injecta `organization_id`/`project_id`/`environment_id` no contexto (§4.3)
+- [x] Cache de credenciais validadas (Redis, TTL curto, prefixo de tenant) com invalidação na revogação
+- [x] `last_used_at` (actualização assíncrona/agrupada, sem escrita por pedido) (§10.2)
+- [x] Detecção de uso anómalo de keys (picos, IPs novos) → evento de auditoria (alerta real na Fase 4) (§10.2)
 - **🔒 Blindagem de Segurança (1.3):**
-  - [ ] Segredo mostrado **uma única vez**; nunca devolvido nem gravado em plaintext
-  - [ ] `vg_ing_` impedida de aceder a rotas administrativas ou de leitura; `vg_cli_` só leitura (testes negativos)
-  - [ ] Revogação imediata com invalidação de cache + teste de rejeição imediata
-  - [ ] `is_protected` protege contra eliminação/alteração não autorizada
-  - [ ] Testes cross-tenant em todos os endpoints de projects, environments e credentials
+  - [x] Segredo mostrado **uma única vez**; nunca devolvido nem gravado em plaintext
+  - [x] `vg_ing_` impedida de aceder a rotas administrativas ou de leitura; `vg_cli_` só leitura (testes negativos)
+  - [x] Revogação imediata com invalidação de cache + teste de rejeição imediata
+  - [x] `is_protected` protege contra eliminação/alteração não autorizada
+  - [x] Testes cross-tenant em todos os endpoints de projects, environments e credentials
 
 ### 1.4 Validação e saída da Fase 1
-- [ ] Suite automatizada **cross-tenant** para todos os recursos sensíveis (`tests/security/`) (§11.1, §11.9)
-- [ ] Testes de revogação imediata e de não-exposição de segredos em logs/respostas (§11.9)
-- [ ] **E2E** (`tests/e2e/`): signup/login/MFA, organização + membros, projecto + ambiente, criar/revogar key, trilha de auditoria, negativo cross-tenant (§15.2 #1–4, #12–13)
-- [ ] CI completo: `sqlc diff`, `oapi-codegen` sem diferenças, testes de integração, validação de migrations (up → down → up) (§16.1)
-- [ ] Backup e restore encriptado do PostgreSQL testado (`pg_dump`/`pgBackRest`) + runbook (§16.6)
-- [ ] Decisão e aplicação de **RLS** como defesa em profundidade (`SET LOCAL app.organization_id` dentro de `WithTx`) (§8.6, §11.1)
+- [x] Suite automatizada **cross-tenant** para todos os recursos sensíveis (`tests/security/`) (§11.1, §11.9)
+- [x] Testes de revogação imediata e de não-exposição de segredos em logs/respostas (§11.9)
+- [x] **E2E** (`tests/e2e/`): signup/login/MFA, organização + membros, projecto + ambiente, criar/revogar key, trilha de auditoria, negativo cross-tenant (§15.2 #1–4, #12–13)
+- [x] CI completo: `sqlc diff`, `oapi-codegen` sem diferenças, testes de integração, validação de migrations (up → down → up) (§16.1)
+- [x] Backup e restore encriptado do PostgreSQL testado (`pg_dump` + OpenSSL AES-256-CBC/PBKDF2) + runbook (`docs/runbooks/postgres-backup-restore.md`) (§16.6)
+- [x] Decisão e aplicação de **RLS** como defesa em profundidade (`SET LOCAL app.organization_id` dentro de `WithTenantTx`) (§8.6, §11.1)
 - [ ] **Revisão de segurança antes de iniciar a ingestão** (§20.2 passo 12) — a primeira ingestão é a compatível Sentry da Fase 2 🧭
 
 ---
