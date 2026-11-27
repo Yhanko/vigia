@@ -3,10 +3,9 @@ package ratelimit
 import (
 	"log/slog"
 	"math"
-	"net"
 	"net/http"
+	"net/netip"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/Yhanko/vigia/internal/platform/httpserver"
@@ -16,12 +15,13 @@ const failClosedRetryAfterSeconds = "5"
 
 // MiddlewareOptions configures the HTTP rate-limiting middleware.
 type MiddlewareOptions struct {
-	Limiter    Limiter
-	KeyPrefix  string
-	Limit      int
-	Window     time.Duration
-	FailClosed bool
-	Logger     *slog.Logger
+	Limiter        Limiter
+	KeyPrefix      string
+	Limit          int
+	Window         time.Duration
+	FailClosed     bool
+	TrustedProxies []netip.Prefix
+	Logger         *slog.Logger
 }
 
 // Middleware enforces a per-IP sliding-window rate limit, emitting standard
@@ -41,7 +41,7 @@ func Middleware(opts MiddlewareOptions) func(http.Handler) http.Handler {
 				return
 			}
 
-			key := opts.KeyPrefix + ":" + ClientIP(r)
+			key := opts.KeyPrefix + ":" + httpserver.ClientIP(r, opts.TrustedProxies)
 			res, err := opts.Limiter.Allow(r.Context(), key, opts.Limit, opts.Window)
 			if err != nil {
 				if opts.FailClosed {
@@ -91,18 +91,6 @@ func WriteHeaders(w http.ResponseWriter, res Result) {
 		}
 		w.Header().Set("Retry-After", strconv.Itoa(retrySec))
 	}
-}
-
-// ClientIP extracts the remote IP address without port from r.RemoteAddr.
-func ClientIP(r *http.Request) string {
-	host, _, err := net.SplitHostPort(strings.TrimSpace(r.RemoteAddr))
-	if err == nil && host != "" {
-		return host
-	}
-	if addr := strings.TrimSpace(r.RemoteAddr); addr != "" {
-		return addr
-	}
-	return "unknown"
 }
 
 func ceilSeconds(d time.Duration) int {

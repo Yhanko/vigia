@@ -172,12 +172,13 @@ func runAPI() error {
 			return err
 		}
 		apiRateLimitMW = ratelimit.Middleware(ratelimit.MiddlewareOptions{
-			Limiter:    limiter,
-			KeyPrefix:  "api",
-			Limit:      120,
-			Window:     time.Minute,
-			FailClosed: false,
-			Logger:     logger,
+			Limiter:        limiter,
+			KeyPrefix:      "api",
+			Limit:          120,
+			Window:         time.Minute,
+			FailClosed:     false,
+			TrustedProxies: cfg.TrustedProxies,
+			Logger:         logger,
 		})
 	}
 
@@ -207,7 +208,7 @@ func runAPI() error {
 		if err != nil {
 			return err
 		}
-		idHandler, err = identity.NewHandler(idSvc, idSessions, buildAllowedOrigins(cfg), logger)
+		idHandler, err = identity.NewHandler(idSvc, idSessions, buildAllowedOrigins(cfg), cfg.TrustedProxies, logger)
 		if err != nil {
 			return err
 		}

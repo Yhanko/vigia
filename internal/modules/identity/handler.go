@@ -4,6 +4,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"net/netip"
 
 	"github.com/google/uuid"
 	openapi_types "github.com/oapi-codegen/runtime/types"
@@ -23,11 +24,12 @@ type Handler struct {
 	svc            *Service
 	sessions       *session.Codec
 	allowedOrigins map[string]struct{}
+	trustedProxies []netip.Prefix
 	logger         *slog.Logger
 }
 
 // NewHandler constructs an identity HTTP Handler.
-func NewHandler(svc *Service, sessions *session.Codec, allowedOrigins []string, logger *slog.Logger) (*Handler, error) {
+func NewHandler(svc *Service, sessions *session.Codec, allowedOrigins []string, trustedProxies []netip.Prefix, logger *slog.Logger) (*Handler, error) {
 	if svc == nil {
 		return nil, errors.New("identity: service is required")
 	}
@@ -38,6 +40,7 @@ func NewHandler(svc *Service, sessions *session.Codec, allowedOrigins []string, 
 		svc:            svc,
 		sessions:       sessions,
 		allowedOrigins: makeOriginSet(allowedOrigins),
+		trustedProxies: trustedProxies,
 		logger:         logger,
 	}, nil
 }
@@ -59,7 +62,7 @@ func (h *Handler) AuthRegister(w http.ResponseWriter, r *http.Request) {
 		Email:    req.Email,
 		Name:     req.Name,
 		Password: req.Password,
-		Meta:     extractRequestMeta(r),
+		Meta:     h.extractRequestMeta(r),
 	})
 	if err != nil {
 		h.writeServiceError(w, r, err)
@@ -87,7 +90,7 @@ func (h *Handler) AuthLogin(w http.ResponseWriter, r *http.Request) {
 	res, err := h.svc.Login(r.Context(), LoginInput{
 		Email:    req.Email,
 		Password: req.Password,
-		Meta:     extractRequestMeta(r),
+		Meta:     h.extractRequestMeta(r),
 	})
 	if err != nil {
 		h.writeServiceError(w, r, err)
@@ -104,7 +107,7 @@ func (h *Handler) AuthLogout(w http.ResponseWriter, r *http.Request, params api.
 		return
 	}
 
-	if err := h.svc.Logout(r.Context(), active, extractRequestMeta(r)); err != nil {
+	if err := h.svc.Logout(r.Context(), active, h.extractRequestMeta(r)); err != nil {
 		h.writeServiceError(w, r, err)
 		return
 	}
@@ -120,7 +123,7 @@ func (h *Handler) AuthRefresh(w http.ResponseWriter, r *http.Request, params api
 		return
 	}
 
-	res, err := h.svc.Refresh(r.Context(), active, extractRequestMeta(r))
+	res, err := h.svc.Refresh(r.Context(), active, h.extractRequestMeta(r))
 	if err != nil {
 		h.writeServiceError(w, r, err)
 		return
@@ -197,9 +200,9 @@ func (h *Handler) writeServiceError(w http.ResponseWriter, r *http.Request, err 
 	}
 }
 
-func extractRequestMeta(r *http.Request) RequestMeta {
+func (h *Handler) extractRequestMeta(r *http.Request) RequestMeta {
 	return RequestMeta{
-		ClientIP:  ratelimit.ClientIP(r),
+		ClientIP:  httpserver.ClientIP(r, h.trustedProxies),
 		UserAgent: r.UserAgent(),
 		RequestID: httpserver.RequestIDFromContext(r.Context()),
 	}

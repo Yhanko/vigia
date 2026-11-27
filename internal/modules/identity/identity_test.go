@@ -292,7 +292,7 @@ func newHarness(t *testing.T, appEnv string) *harness {
 		t.Fatal(err)
 	}
 	origin := "https://app.vigia.ao"
-	h, err := identity.NewHandler(svc, codec, []string{origin}, logger)
+	h, err := identity.NewHandler(svc, codec, []string{origin}, nil, logger)
 	if err != nil {
 		t.Fatal(err)
 	}

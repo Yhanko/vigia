@@ -6,6 +6,7 @@ package config
 import (
 	"fmt"
 	"log/slog"
+	"net/netip"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -63,7 +64,8 @@ type Config struct {
 	APIKeyPepper  Secret
 	EncryptionKey Secret
 
-	CORSOrigins []string
+	CORSOrigins    []string
+	TrustedProxies []netip.Prefix
 
 	// APIMaxBodyBytes caps request bodies on the product API. Ingestion endpoints
 	// apply their own limit (IngestMaxPayloadBytes) on their route group.
@@ -209,6 +211,23 @@ func LoadFrom(getenv func(string) string) (Config, error) {
 		if err := validateOrigin(o); err != nil {
 			return Config{}, err
 		}
+	}
+
+	if v := strings.TrimSpace(getenv("TRUSTED_PROXIES")); v != "" {
+		parts := strings.Split(v, ",")
+		proxies := make([]netip.Prefix, 0, len(parts))
+		for _, p := range parts {
+			p = strings.TrimSpace(p)
+			if p == "" {
+				continue
+			}
+			prefix, err := netip.ParsePrefix(p)
+			if err != nil {
+				return Config{}, fmt.Errorf("invalid TRUSTED_PROXIES CIDR %q: %w", p, err)
+			}
+			proxies = append(proxies, prefix)
+		}
+		cfg.TrustedProxies = proxies
 	}
 
 	if v := strings.TrimSpace(getenv("API_MAX_BODY_BYTES")); v != "" {
