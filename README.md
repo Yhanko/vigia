@@ -271,7 +271,8 @@ Domínios iniciais:
 | Acesso a dados | `pgx` + **`sqlc`** (SQL escrito à mão, código gerado com tipos) | Sem ORM; o mesmo modelo serve metadata e hypertables |
 | Migrations | `goose` (ou `golang-migrate`) | Embutidas no binário (`vigia migrate`) |
 | Séries temporais | **TimescaleDB** (extensão do Postgres) | Hypertables, compressão, retenção, continuous aggregates |
-| Fila / cache / coordenação | Redis + **Asynq** | Jobs, retry com backoff, DLQ (tarefas arquivadas), agendamento, unicidade; locks e rate limit via Redis |
+| Fila de jobs | **River** (PostgreSQL) | Jobs na mesma transacção da mudança de estado (outbox), retries com backoff, jobs descartados (DLQ), únicos e periódicos com eleição de líder (ADR-004) |
+| Cache / coordenação | Redis | Rate limit, quotas, deduplicação rápida, cache de credenciais e idempotência |
 | Tempo real | **SSE** primeiro; WebSocket se houver canal bidireccional | Alertas são unidireccionais |
 | Logging | `log/slog` (stdlib), saída JSON | Ver 14.2 |
 | Configuração | Variáveis de ambiente validadas no arranque (`caarlos0/env`) | Falha rápida com config inválida |

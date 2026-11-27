@@ -112,6 +112,7 @@
 | 2026-11-26 | **No MVP o "acknowledge" é o estado do issue** (`resolved`/`ignored`), sem entidade Incident; os incidentes completos chegam com os alertas de métricas (Fase 4) | Reduz o MVP sem perder o essencial |
 | 2026-11-26 | **O MVP inclui um go-live mínimo** (2.9): não se dá acesso a clientes sem TLS, backups com restore testado, monitorização externa e runbooks essenciais | Os dados de erros dos clientes são sensíveis desde o primeiro dia |
 | 2026-11-27 | **Fase 1 fecha sem branch protection em `staging`/`main`**, por decisão do CEO (risco aceite). Até ser activada: só o CTO promove para `staging`/`main`, sempre por fast-forward de um commit com os 5 jobs verdes em `development`, nunca com force-push; o Gemini nunca faz push para esses branches. **Prazo: activar antes do go-live (2.9)**, que passa a ser condição do go-live | Decisão do CEO; o risco (push acidental ou reescrita de histórico em `main`) é mitigado pelo processo enquanto não há clientes em produção |
+| 2026-11-27 | **ADRs da Fase 2 aceites:** ADR-003 (TimescaleDB no PostgreSQL existente; `issue_events` em hypertable com RLS; ClickHouse só pelos sinais de revisão), ADR-004 (**River** em vez de Asynq: fila em PostgreSQL com jobs na mesma transacção, que substituem a `notification_outbox` e o `vigia scheduler`), ADR-009 (limites do plano único do beta, contagem e retenções) e ADR-017 (subconjunto do protocolo Sentry, limites, agrupamento `v1` e matriz de SDKs) | Redis com 256 MB e `noeviction` não serve de fila durável; atomicidade entre issue e notificação; um só sistema durável para backup e restore |
 
 ---
 
@@ -192,13 +193,13 @@
 - [x] Template `docs/adr/000-template.md` — *aprovado pelo CTO (2026-11-26) e fundido na `main`*
 - [x] ADR-001: Monorepo e monólito modular — *antes da Fase 1; aceite (2026-11-26) e fundido na `main`*
 - [x] ADR-002: PostgreSQL para metadata — *antes da Fase 1; aceite (2026-11-26) e fundido na `main`*
-- [ ] ADR-003: TimescaleDB vs ClickHouse para telemetria (**incl. revisão da Timescale License**, §5.3) e onde vivem os `issue_events` — *antes da Fase 2*
-- [ ] ADR-004: Asynq vs River vs RabbitMQ/NATS; semântica de entrega (at-least-once + dedup) — *antes da Fase 2*
+- [x] ADR-003: TimescaleDB vs ClickHouse para telemetria (**incl. revisão da Timescale License**, §5.3) e onde vivem os `issue_events` — *antes da Fase 2; aceite (2026-11-27): TimescaleDB no PostgreSQL existente, `issue_events` em hypertable com RLS*
+- [x] ADR-004: Asynq vs River vs RabbitMQ/NATS; semântica de entrega (at-least-once + dedup) — *antes da Fase 2; aceite (2026-11-27): River (PostgreSQL), jobs na mesma transacção como outbox*
 - [x] ADR-005: Autenticação (sessões, cookies, CSRF) e formato/hash das API keys, **incluindo o tipo "DSN key" pública** (2.1) — *antes da 1.2; aceite (2026-11-26) e fundido na `main`*
 - [ ] ADR-006: Ingestão OpenTelemetry — *antes da Fase 9*
 - [ ] ADR-007: Modelo de métricas e cardinalidade — *antes da Fase 3*
 - [x] ADR-008: Isolamento de tenant (aplicação + RLS) — *antes da 1.2; aceite (2026-11-26) e fundido na `main`*
-- [ ] ADR-009: Retenção e quotas (eventos de erro/dia, mensagens WhatsApp/mês) — *antes da Fase 2*
+- [x] ADR-009: Retenção e quotas (eventos de erro/dia, mensagens WhatsApp/mês) — *antes da Fase 2; aceite (2026-11-27)*
 - [ ] ADR-010: Estratégia de deploy — *antes do go-live da Fase 2 (2.9)*
 - [ ] ADR-011: SSE vs WebSocket; autenticação do stream; fan-out entre réplicas — *antes da Fase 4*
 - [ ] ADR-012: Segurança dos collectors pull (BD e endpoints) — *antes da Fase 6*
@@ -206,7 +207,7 @@
 - [x] ADR-014: Acesso a dados (`sqlc` + `pgx` vs ORM) — *aceite (2026-11-26) e fundido na `main`*
 - [x] ADR-015: Gestão de chaves de encriptação (envelope encryption, KEK/DEK, rotação) — *antes da 1.2; aceite (2026-11-26) e fundido na `main`*
 - [ ] ADR-016: Armazenamento de "events" genéricos (`/ingest/events`) — *antes da Fase 3*
-- [ ] **ADR-017: Compatibilidade com o protocolo de ingestão dos SDKs Sentry** — *antes da Fase 2*. Tem de fixar:
+- [x] **ADR-017: Compatibilidade com o protocolo de ingestão dos SDKs Sentry** — *antes da Fase 2; aceite (2026-11-27)*. Tem de fixar:
   - versão do protocolo (`sentry_version=7`), endpoints (`/api/<project_id>/envelope/` e `/store/`) e formatos de autenticação (`X-Sentry-Auth`, query `sentry_key`);
   - tipos de item suportados no MVP (`event`) e os aceites-e-descartados (`transaction`, `session(s)`, `client_report`, `attachment`, `replay_*`, `profile`, `check_in`, `span`, `log`, `statsd`), sempre com `200` para não partir os SDKs;
   - limites (envelope, evento, descomprimido, frames, breadcrumbs) e compressões aceites (`gzip`, `deflate`, `br`, `zstd`?);
@@ -339,11 +340,11 @@
 > **Pré-requisitos:** Fase 1 concluída (auth, orgs, RBAC, projectos, credenciais, audit, CI); ADR-003, 004, 009, 015, 017 aprovados.
 
 ### 2.0 Fundações partilhadas do MVP
-- [ ] Fila durável (Asynq ou River, conforme ADR-004) + subcomando `vigia worker` com graceful shutdown, concorrência limitada e filas/limites **por tenant** (§4.4, §13.6)
-- [ ] Subcomando `vigia scheduler` (jobs periódicos: detecção de picos, digests, retenção) com lock distribuído (§4.4)
+- [ ] Fila durável **River** (ADR-004): migrations do River no goose, filas `ingest`/`alerts`/`notifications`/`maintenance`, subcomandos `vigia worker` e `vigia dispatcher` com graceful shutdown e concorrência limitada; benchmark do ADR-004 §6 (§4.4, §13.6)
+- [ ] Jobs periódicos (detecção de picos, digests, retenção, limpezas, agregados de uso) como `PeriodicJobs` do River com eleição de líder dentro do `vigia worker` — **sem** subcomando `vigia scheduler` no MVP (ADR-004 §3.2)
 - [ ] `internal/platform/redaction`: regras partilhadas de scrubbing (lista da §2.3) e lista de dados proibidos (§11.4, §17.3) + testes
 - [ ] `quotas` (mínimo do MVP): eventos de erro/dia por organização, mensagens WhatsApp/mês por organização, projectos e membros; contadores em Redis + `usage_aggregates`; `GET /organizations/:id/usage` e `/quotas` (§17.1, §9.2)
-- [ ] Serviços `worker` e `scheduler` no `compose.yaml`
+- [ ] Serviços `worker` e `dispatcher` no `compose.yaml`
 
 ### 2.1 Projectos e DSN compatível com Sentry
 - [ ] `projects.public_id`: identificador **numérico** do projecto para o DSN (vários SDKs Sentry, ex. Python, exigem `project_id` inteiro). Gerar aleatório de 53 bits (nunca sequencial: não revelar o número de projectos) com `UNIQUE`
@@ -405,8 +406,8 @@
 - [ ] Testes com relógio injectável (`clock.Fake`) para janelas e cooldowns
 
 ### 2.6 Motor de notificações
-- [ ] Migrations `notification_policies`, `notification_destinations`, `notification_subscriptions`, `notifications`, `notification_outbox` (§8.2)
-- [ ] Subcomando `vigia dispatcher`: lê a outbox, backoff exponencial + jitter, máximo de tentativas, DLQ, idempotency key por notificação, timeout e circuit breaker por canal; estados `pending | sent | failed | suppressed` (§7.7)
+- [ ] Migrations `notification_policies`, `notification_destinations`, `notification_subscriptions`, `notifications` (§8.2); **sem** `notification_outbox`: a outbox é o job do River inserido na mesma transacção (ADR-004 §3.3)
+- [ ] Subcomando `vigia dispatcher` (cliente River só com a fila `notifications`): backoff exponencial + jitter, máximo de tentativas, DLQ, idempotency key por notificação, timeout e circuit breaker por canal; estados `pending | sent | failed | suppressed` (§7.7)
 - [ ] Interface de canal (adapter) única: `Send(ctx, destination, message) (providerMessageID, error)` com classificação de erros (retentável / permanente / destino inválido)
 - [ ] Destinos por utilizador e por equipa/grupo; preferências por utilizador (canal, severidade, projectos, horário de silêncio opcional)
 - [ ] Templates versionados por canal (texto curto: projecto, ambiente, tipo de erro, mensagem truncada, contagem, link autenticado para o issue); **sem PII nem stack trace completo** na mensagem
