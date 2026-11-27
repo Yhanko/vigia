@@ -514,12 +514,61 @@ func TestDatabaseIntegration(t *testing.T) {
 			t.Fatalf("expected SQLSTATE 42501 for DELETE on organizations as vigia_app, got: %v", err)
 		}
 
+		// Cross-tenant UPDATE and DELETE from Tenant A context targeting Org B rows
+		// (memberships and teams) must affect 0 rows and leave Org B intact (CTO #10).
+		if err := WithTenantTx(ctx, appPool, tidA, func(tx pgx.Tx) error {
+			for _, tc := range []struct {
+				name string
+				sql  string
+				arg  string
+			}{
+				{"UPDATE memberships Org B", "UPDATE memberships SET role = 'viewer' WHERE id = $1", memB},
+				{"DELETE memberships Org B", "DELETE FROM memberships WHERE id = $1", memB},
+				{"UPDATE teams Org B", "UPDATE teams SET name = 'Tampered', slug = 'tampered' WHERE id = $1", teamB},
+				{"DELETE teams Org B", "DELETE FROM teams WHERE id = $1", teamB},
+			} {
+				tag, err := tx.Exec(ctx, tc.sql, tc.arg)
+				if err != nil {
+					return err
+				}
+				if tag.RowsAffected() != 0 {
+					t.Fatalf("cross-tenant %s affected %d rows, want 0", tc.name, tag.RowsAffected())
+				}
+			}
+			return nil
+		}); err != nil {
+			t.Fatalf("cross-tenant UPDATE/DELETE test tx: %v", err)
+		}
+
 		// Verify ownership = vigia_definer (not vigia) and PUBLIC has NO EXECUTE on both functions.
 		adminPool, err := NewPool(ctx, dsn, PoolOptions{MaxConns: 2, StatementTimeout: 5 * time.Second})
 		if err != nil {
 			t.Fatalf("admin pool: %v", err)
 		}
 		defer adminPool.Close()
+
+		// Re-read Org B rows as admin and compare field by field to prove zero mutation.
+		var bMemID, bMemOrgID, bMemUserID, bMemRole, bMemStatus string
+		if err := adminPool.QueryRow(ctx,
+			"SELECT id, organization_id, user_id, role, status FROM memberships WHERE id = $1", memB,
+		).Scan(&bMemID, &bMemOrgID, &bMemUserID, &bMemRole, &bMemStatus); err != nil {
+			t.Fatalf("re-read Org B membership as admin: %v", err)
+		}
+		if bMemID != memB || bMemOrgID != orgB || bMemUserID != userB || bMemRole != "owner" || bMemStatus != "active" {
+			t.Fatalf("Org B membership mutated: got (%s, %s, %s, %s, %s), want (%s, %s, %s, owner, active)",
+				bMemID, bMemOrgID, bMemUserID, bMemRole, bMemStatus, memB, orgB, userB)
+		}
+
+		var bTeamID, bTeamOrgID, bTeamName, bTeamSlug string
+		if err := adminPool.QueryRow(ctx,
+			"SELECT id, organization_id, name, slug FROM teams WHERE id = $1", teamB,
+		).Scan(&bTeamID, &bTeamOrgID, &bTeamName, &bTeamSlug); err != nil {
+			t.Fatalf("re-read Org B team as admin: %v", err)
+		}
+		if bTeamID != teamB || bTeamOrgID != orgB || bTeamName != "Core B" || bTeamSlug != "core-b" {
+			t.Fatalf("Org B team mutated: got (%s, %s, %s, %s), want (%s, %s, Core B, core-b)",
+				bTeamID, bTeamOrgID, bTeamName, bTeamSlug, teamB, orgB)
+		}
 
 		for _, sig := range []string{
 			"public.list_user_organizations(uuid)",
