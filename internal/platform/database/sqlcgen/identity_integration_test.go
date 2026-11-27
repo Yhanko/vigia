@@ -167,13 +167,37 @@ func TestIdentityQueriesIntegration(t *testing.T) {
 		t.Fatalf("CreateSession #2: %v", err)
 	}
 
-	// Active session lookup succeeds before expiry.
+	// Active session lookup succeeds before expiry and includes active user fields (CTO #14).
 	active, err := q.GetActiveSessionByTokenHash(ctx, sqlcgen.GetActiveSessionByTokenHashParams{
 		TokenHash: tok1Hash,
 		Now:       pgtype.Timestamptz{Time: now.Add(1 * time.Hour), Valid: true},
 	})
-	if err != nil || active.ID != sess1ID {
-		t.Fatalf("GetActiveSessionByTokenHash(active) = (%v, %v), want %v", active.ID, err, sess1ID)
+	if err != nil || active.ID != sess1ID || active.UserEmail != "alice@example.com" || active.UserStatus != "active" {
+		t.Fatalf("GetActiveSessionByTokenHash(active) = (%+v, %v), want session %v for active user", active, err, sess1ID)
+	}
+
+	// CTO #14: disabling a user immediately invalidates session lookup even before revocation.
+	if err := q.UpdateUserStatus(ctx, sqlcgen.UpdateUserStatusParams{
+		ID:        userID,
+		Status:    "disabled",
+		UpdatedAt: pgtype.Timestamptz{Time: now.Add(90 * time.Minute), Valid: true},
+	}); err != nil {
+		t.Fatalf("UpdateUserStatus(disabled): %v", err)
+	}
+	_, err = q.GetActiveSessionByTokenHash(ctx, sqlcgen.GetActiveSessionByTokenHashParams{
+		TokenHash: tok1Hash,
+		Now:       pgtype.Timestamptz{Time: now.Add(95 * time.Minute), Valid: true},
+	})
+	if !errors.Is(err, pgx.ErrNoRows) {
+		t.Fatalf("GetActiveSessionByTokenHash(disabled user) err = %v, want pgx.ErrNoRows", err)
+	}
+	// Restore user to active for remaining revocation checks.
+	if err := q.UpdateUserStatus(ctx, sqlcgen.UpdateUserStatusParams{
+		ID:        userID,
+		Status:    "active",
+		UpdatedAt: pgtype.Timestamptz{Time: now.Add(96 * time.Minute), Valid: true},
+	}); err != nil {
+		t.Fatalf("UpdateUserStatus(active): %v", err)
 	}
 
 	// Expired session lookup returns pgx.ErrNoRows.

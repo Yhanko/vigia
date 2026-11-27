@@ -15,11 +15,14 @@ type Querier interface {
 	// Identity core queries: users and sessions (ADR-005, TASKS 1.2 D3).
 	// Both tables are global (no organization_id).
 	CreateUser(ctx context.Context, arg CreateUserParams) (User, error)
-	GetActiveSessionByTokenHash(ctx context.Context, arg GetActiveSessionByTokenHashParams) (Session, error)
+	GetActiveSessionByTokenHash(ctx context.Context, arg GetActiveSessionByTokenHashParams) (GetActiveSessionByTokenHashRow, error)
 	GetUserByEmail(ctx context.Context, email string) (User, error)
 	GetUserByID(ctx context.Context, id pgtype.UUID) (User, error)
+	InsertGlobalAuditLog(ctx context.Context, arg InsertGlobalAuditLogParams) error
 	RevokeAllUserSessions(ctx context.Context, arg RevokeAllUserSessionsParams) (int64, error)
 	RevokeSession(ctx context.Context, arg RevokeSessionParams) (int64, error)
+	UpdateUserPasswordHash(ctx context.Context, arg UpdateUserPasswordHashParams) error
+	UpdateUserStatus(ctx context.Context, arg UpdateUserStatusParams) error
 }
 
 var _ Querier = (*Queries)(nil)

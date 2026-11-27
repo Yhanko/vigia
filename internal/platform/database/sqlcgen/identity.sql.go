@@ -108,12 +108,28 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, e
 }
 
 const getActiveSessionByTokenHash = `-- name: GetActiveSessionByTokenHash :one
-SELECT id, user_id, token_hash, csrf_token_hash, last_auth_at, expires_at, absolute_expires_at, revoked_at, ip_prefix, user_agent, created_at
-FROM sessions
-WHERE token_hash = $1
-  AND revoked_at IS NULL
-  AND expires_at > $2::timestamptz
-  AND absolute_expires_at > $2::timestamptz
+SELECT
+    s.id,
+    s.user_id,
+    s.token_hash,
+    s.csrf_token_hash,
+    s.last_auth_at,
+    s.expires_at,
+    s.absolute_expires_at,
+    s.revoked_at,
+    s.ip_prefix,
+    s.user_agent,
+    s.created_at,
+    u.email       AS user_email,
+    u.name        AS user_name,
+    u.mfa_enabled AS user_mfa_enabled,
+    u.status      AS user_status
+FROM sessions s
+JOIN users u ON u.id = s.user_id AND u.status = 'active'
+WHERE s.token_hash = $1
+  AND s.revoked_at IS NULL
+  AND s.expires_at > $2::timestamptz
+  AND s.absolute_expires_at > $2::timestamptz
 `
 
 type GetActiveSessionByTokenHashParams struct {
@@ -121,9 +137,27 @@ type GetActiveSessionByTokenHashParams struct {
 	Now       pgtype.Timestamptz `json:"now"`
 }
 
-func (q *Queries) GetActiveSessionByTokenHash(ctx context.Context, arg GetActiveSessionByTokenHashParams) (Session, error) {
+type GetActiveSessionByTokenHashRow struct {
+	ID                pgtype.UUID        `json:"id"`
+	UserID            pgtype.UUID        `json:"user_id"`
+	TokenHash         []byte             `json:"token_hash"`
+	CsrfTokenHash     []byte             `json:"csrf_token_hash"`
+	LastAuthAt        pgtype.Timestamptz `json:"last_auth_at"`
+	ExpiresAt         pgtype.Timestamptz `json:"expires_at"`
+	AbsoluteExpiresAt pgtype.Timestamptz `json:"absolute_expires_at"`
+	RevokedAt         pgtype.Timestamptz `json:"revoked_at"`
+	IpPrefix          *string            `json:"ip_prefix"`
+	UserAgent         *string            `json:"user_agent"`
+	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+	UserEmail         string             `json:"user_email"`
+	UserName          string             `json:"user_name"`
+	UserMfaEnabled    bool               `json:"user_mfa_enabled"`
+	UserStatus        string             `json:"user_status"`
+}
+
+func (q *Queries) GetActiveSessionByTokenHash(ctx context.Context, arg GetActiveSessionByTokenHashParams) (GetActiveSessionByTokenHashRow, error) {
 	row := q.db.QueryRow(ctx, getActiveSessionByTokenHash, arg.TokenHash, arg.Now)
-	var i Session
+	var i GetActiveSessionByTokenHashRow
 	err := row.Scan(
 		&i.ID,
 		&i.UserID,
@@ -136,6 +170,10 @@ func (q *Queries) GetActiveSessionByTokenHash(ctx context.Context, arg GetActive
 		&i.IpPrefix,
 		&i.UserAgent,
 		&i.CreatedAt,
+		&i.UserEmail,
+		&i.UserName,
+		&i.UserMfaEnabled,
+		&i.UserStatus,
 	)
 	return i, err
 }
@@ -188,6 +226,68 @@ func (q *Queries) GetUserByID(ctx context.Context, id pgtype.UUID) (User, error)
 	return i, err
 }
 
+const insertGlobalAuditLog = `-- name: InsertGlobalAuditLog :exec
+INSERT INTO audit_logs (
+    id,
+    organization_id,
+    actor_type,
+    actor_id,
+    action,
+    resource_type,
+    resource_id,
+    result,
+    ip_prefix,
+    user_agent,
+    request_id,
+    changes
+)
+VALUES (
+    $1,
+    NULL,
+    $2,
+    $3,
+    $4,
+    $5,
+    $6,
+    $7,
+    $8,
+    $9,
+    $10,
+    $11
+)
+`
+
+type InsertGlobalAuditLogParams struct {
+	ID           pgtype.UUID `json:"id"`
+	ActorType    string      `json:"actor_type"`
+	ActorID      pgtype.UUID `json:"actor_id"`
+	Action       string      `json:"action"`
+	ResourceType string      `json:"resource_type"`
+	ResourceID   *string     `json:"resource_id"`
+	Result       string      `json:"result"`
+	IpPrefix     *string     `json:"ip_prefix"`
+	UserAgent    *string     `json:"user_agent"`
+	RequestID    string      `json:"request_id"`
+	Changes      []byte      `json:"changes"`
+}
+
+func (q *Queries) InsertGlobalAuditLog(ctx context.Context, arg InsertGlobalAuditLogParams) error {
+	_, err := q.db.Exec(ctx, insertGlobalAuditLog,
+		arg.ID,
+		arg.ActorType,
+		arg.ActorID,
+		arg.Action,
+		arg.ResourceType,
+		arg.ResourceID,
+		arg.Result,
+		arg.IpPrefix,
+		arg.UserAgent,
+		arg.RequestID,
+		arg.Changes,
+	)
+	return err
+}
+
 const revokeAllUserSessions = `-- name: RevokeAllUserSessions :execrows
 UPDATE sessions
 SET revoked_at = $2::timestamptz
@@ -226,4 +326,40 @@ func (q *Queries) RevokeSession(ctx context.Context, arg RevokeSessionParams) (i
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const updateUserPasswordHash = `-- name: UpdateUserPasswordHash :exec
+UPDATE users
+SET password_hash = $2,
+    updated_at = $3::timestamptz
+WHERE id = $1
+`
+
+type UpdateUserPasswordHashParams struct {
+	ID           pgtype.UUID        `json:"id"`
+	PasswordHash string             `json:"password_hash"`
+	UpdatedAt    pgtype.Timestamptz `json:"updated_at"`
+}
+
+func (q *Queries) UpdateUserPasswordHash(ctx context.Context, arg UpdateUserPasswordHashParams) error {
+	_, err := q.db.Exec(ctx, updateUserPasswordHash, arg.ID, arg.PasswordHash, arg.UpdatedAt)
+	return err
+}
+
+const updateUserStatus = `-- name: UpdateUserStatus :exec
+UPDATE users
+SET status = $2,
+    updated_at = $3::timestamptz
+WHERE id = $1
+`
+
+type UpdateUserStatusParams struct {
+	ID        pgtype.UUID        `json:"id"`
+	Status    string             `json:"status"`
+	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+}
+
+func (q *Queries) UpdateUserStatus(ctx context.Context, arg UpdateUserStatusParams) error {
+	_, err := q.db.Exec(ctx, updateUserStatus, arg.ID, arg.Status, arg.UpdatedAt)
+	return err
 }

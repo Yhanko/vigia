@@ -354,6 +354,7 @@ components:
         email:
           type: string
           format: email
+          x-go-type: string
           maxLength: 254
         name:
           type: string
@@ -375,6 +376,7 @@ components:
         email:
           type: string
           format: email
+          x-go-type: string
           maxLength: 254
         password:
           type: string
