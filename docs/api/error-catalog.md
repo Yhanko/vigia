@@ -47,6 +47,8 @@ Todas as respostas de erro sob `/api/v1/*` usam exclusivamente este envelope JSO
 | `FORBIDDEN` | `403` | Utilizador autenticado na organização mas sem permissão RBAC para a acção |
 | `INSUFFICIENT_SCOPE` | `403` | Credencial `vg_ing_`, `vg_cli_` ou `dsn` usada fora do seu âmbito permitido |
 | `CSRF_INVALID` | `403` | `Origin` ou `X-CSRF-Token` em falta ou inválido em pedido mutável por cookie |
+| `MFA_SETUP_REQUIRED` | `403` | Utilizador `owner`/`admin` sem MFA activado a tentar aceder a rota da organização quando `MFA_REQUIRED_FOR_PRIVILEGED=true` |
+| `EMAIL_NOT_VERIFIED` | `403` | Conta sem email verificado a tentar aceitar convite, criar organização ou receber transferência de ownership |
 | `PROTECTED_RESOURCE` | `403` | Tentativa de eliminar/alterar ambiente com `is_protected = true` ou último `owner` |
 
 ### 2.3 Validação, Parsing e Recursos (`400`, `404`, `405`, `409`, `413`, `415`)
@@ -60,6 +62,7 @@ Todas as respostas de erro sob `/api/v1/*` usam exclusivamente este envelope JSO
 | `METHOD_NOT_ALLOWED` | `405` | Método HTTP não suportado na rota |
 | `CONFLICT` | `409` | Violação de unicidade (ex.: slug de organização/projecto já existente, membro já adicionado) |
 | `IDEMPOTENCY_CONFLICT` | `409` | Mesma `Idempotency-Key` reutilizada com payload diferente |
+| `IDEMPOTENCY_IN_PROGRESS` | `409` | Pedido concorrente com a mesma `Idempotency-Key` ainda em execução |
 | `PAYLOAD_TOO_LARGE` | `413` | Body acima de `API_MAX_BODY_BYTES` / `INGEST_MAX_PAYLOAD_BYTES` ou limite descomprimido |
 | `UNSUPPORTED_MEDIA_TYPE` | `415` | `Content-Type` ausente ou diferente de `application/json` |
 

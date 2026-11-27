@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+
+	"github.com/Yhanko/vigia/internal/platform/ids"
 )
 
 // OwnerType values allowed in Scope (ADR-015 §3.2).
@@ -34,7 +36,7 @@ func (s Scope) Validate() error {
 	if s.OwnerType != OwnerTypeOrg && s.OwnerType != OwnerTypeUser {
 		return fmt.Errorf("%w: owner_type must be %q or %q", ErrInvalidScope, OwnerTypeOrg, OwnerTypeUser)
 	}
-	if !isValidUUID(s.OwnerID) {
+	if !ids.IsCanonicalUUID(s.OwnerID) {
 		return fmt.Errorf("%w: owner_id must be a valid UUID", ErrInvalidScope)
 	}
 	if strings.TrimSpace(s.Table) == "" {
@@ -43,7 +45,7 @@ func (s Scope) Validate() error {
 	if strings.TrimSpace(s.Column) == "" {
 		return fmt.Errorf("%w: column is required", ErrInvalidScope)
 	}
-	if !isValidUUID(s.RecordID) {
+	if !ids.IsCanonicalUUID(s.RecordID) {
 		return fmt.Errorf("%w: record_id must be a valid UUID", ErrInvalidScope)
 	}
 	return nil
@@ -68,27 +70,4 @@ func (s Scope) encodeAAD() []byte {
 		b.WriteString(field)
 	}
 	return []byte(b.String())
-}
-
-// isValidUUID validates canonical 36-character RFC 4122 UUID syntax
-// (xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx) without external dependencies.
-func isValidUUID(s string) bool {
-	if len(s) != 36 {
-		return false
-	}
-	for i := range 36 {
-		c := s[i]
-		switch i {
-		case 8, 13, 18, 23:
-			if c != '-' {
-				return false
-			}
-		default:
-			isHex := (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')
-			if !isHex {
-				return false
-			}
-		}
-	}
-	return true
 }

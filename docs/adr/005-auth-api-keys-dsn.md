@@ -64,7 +64,7 @@ Misturar estas credenciais ou usar sessões não revogáveis (JWT stateless de l
    - Todos os pedidos mutáveis (`POST`, `PUT`, `PATCH`, `DELETE`) autenticados por cookie exigem:
      1. Validação estrita do header `Origin` (ou `Sec-Fetch-Site: same-origin` quando aplicável) contra `APP_URL`/`CORS_ORIGINS`;
      2. Token CSRF associado à sessão (`X-CSRF-Token`, gerado com CSPRNG e comparado em tempo constante).
-6. **MFA (TOTP):** segredo TOTP (RFC 6238) encriptado em repouso via `internal/platform/crypto` (envelope encryption, **ADR-015**, antecipado para *antes da 1.2* por decisão do CTO); códigos de recuperação de uso único guardados como hash. Obrigatório para `owner` e `admin` antes de produção.
+6. **MFA (TOTP):** segredo TOTP (RFC 6238) encriptado em repouso via `internal/platform/crypto` (envelope encryption, **ADR-015**, antecipado para *antes da 1.2* por decisão do CTO); códigos de recuperação de uso único guardados como hash. Obrigatório para `owner` e `admin` antes de produção. *Emenda do CTO (2026-11-27):* os códigos de recuperação têm 80 bits de entropia e guardam-se como `HMAC-SHA256(SESSION_SECRET, "mfa_recovery:" || código)`, não com Argon2id; ver `docs/plans/1.2-identity.md` §7.3.
 7. **Tokens de convite, verificação de email e reset de password:** CSPRNG ≥ 256 bits, guardados apenas como hash SHA-256/HMAC, expiração curta, uso único.
 
 ### 3.2 API Credentials (`api_credentials`)

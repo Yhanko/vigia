@@ -6,6 +6,7 @@ package config
 import (
 	"fmt"
 	"log/slog"
+	"net/netip"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -63,7 +64,8 @@ type Config struct {
 	APIKeyPepper  Secret
 	EncryptionKey Secret
 
-	CORSOrigins []string
+	CORSOrigins    []string
+	TrustedProxies []netip.Prefix
 
 	// APIMaxBodyBytes caps request bodies on the product API. Ingestion endpoints
 	// apply their own limit (IngestMaxPayloadBytes) on their route group.
@@ -72,10 +74,11 @@ type Config struct {
 	IngestMaxBatchItems   int
 	QueryMaxRangeDays     int
 
-	SMTPURL         string
-	VAPIDPublicKey  string
-	VAPIDPrivateKey Secret
-	VAPIDSubject    string
+	SMTPURL                  string
+	MFARequiredForPrivileged bool
+	VAPIDPublicKey           string
+	VAPIDPrivateKey          Secret
+	VAPIDSubject             string
 }
 
 // Load reads configuration from environment variables (and *_FILE secret paths)
@@ -211,6 +214,23 @@ func LoadFrom(getenv func(string) string) (Config, error) {
 		}
 	}
 
+	if v := strings.TrimSpace(getenv("TRUSTED_PROXIES")); v != "" {
+		parts := strings.Split(v, ",")
+		proxies := make([]netip.Prefix, 0, len(parts))
+		for _, p := range parts {
+			p = strings.TrimSpace(p)
+			if p == "" {
+				continue
+			}
+			prefix, err := netip.ParsePrefix(p)
+			if err != nil {
+				return Config{}, fmt.Errorf("invalid TRUSTED_PROXIES CIDR %q: %w", p, err)
+			}
+			proxies = append(proxies, prefix)
+		}
+		cfg.TrustedProxies = proxies
+	}
+
 	if v := strings.TrimSpace(getenv("API_MAX_BODY_BYTES")); v != "" {
 		n, err := strconv.ParseInt(v, 10, 64)
 		if err != nil || n <= 0 {
@@ -249,6 +269,15 @@ func LoadFrom(getenv func(string) string) (Config, error) {
 			return Config{}, fmt.Errorf("invalid SMTP_URL: must be a valid smtp:// or smtps:// URL")
 		}
 		cfg.SMTPURL = v
+	}
+
+	cfg.MFARequiredForPrivileged = cfg.AppEnv != "development"
+	if v := strings.TrimSpace(getenv("MFA_REQUIRED_FOR_PRIVILEGED")); v != "" {
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			return Config{}, fmt.Errorf("invalid MFA_REQUIRED_FOR_PRIVILEGED %q: must be boolean", v)
+		}
+		cfg.MFARequiredForPrivileged = b
 	}
 
 	cfg.VAPIDPublicKey = strings.TrimSpace(getenv("VAPID_PUBLIC_KEY"))

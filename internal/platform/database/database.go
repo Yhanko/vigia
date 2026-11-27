@@ -23,27 +23,24 @@ type PoolOptions struct {
 	StatementTimeout time.Duration
 }
 
-const (
-	defaultMaxConns int32 = 20
-	defaultMinConns int32 = 2
-)
+const defaultMinConns int32 = 2
 
 func parsePoolConfig(dsn string, opts PoolOptions) (*pgxpool.Config, error) {
+	if opts.MaxConns <= 0 {
+		return nil, fmt.Errorf("database: MaxConns must be > 0, got %d", opts.MaxConns)
+	}
+
 	cfg, err := pgxpool.ParseConfig(dsn)
 	if err != nil {
 		return nil, fmt.Errorf("parse database config: %w", err)
 	}
 
-	maxConns := opts.MaxConns
-	if maxConns <= 0 {
-		maxConns = defaultMaxConns
-	}
 	minConns := defaultMinConns
-	if maxConns < minConns {
-		minConns = maxConns
+	if opts.MaxConns < minConns {
+		minConns = opts.MaxConns
 	}
 
-	cfg.MaxConns = maxConns
+	cfg.MaxConns = opts.MaxConns
 	cfg.MinConns = minConns
 	cfg.MaxConnLifetime = 30 * time.Minute
 	cfg.MaxConnIdleTime = 5 * time.Minute
