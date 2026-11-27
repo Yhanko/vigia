@@ -81,7 +81,7 @@ jobs:
         with:
           go-version-file: go.mod
       - name: go test -race -tags=integration
-        run: go test -race -count=1 -tags=integration -v ./...
+        run: go test -race -p 1 -count=1 -tags=integration -v ./...
 
   security:
     name: security (govulncheck, gitleaks)
