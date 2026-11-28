@@ -41,6 +41,11 @@ type CredentialCacheInvalidator interface {
 	InvalidateCache(ctx context.Context, kind, prefix string, publicKey *string)
 }
 
+// MemberQuotaChecker enforces the organization's plan member+pending-invite limit inside WithTenantTx.
+type MemberQuotaChecker interface {
+	CheckMemberLimitTx(ctx context.Context, tx pgx.Tx, orgUUID pgtype.UUID) error
+}
+
 // Actor carries the authenticated caller's identity and session security context.
 type Actor struct {
 	UserID     string
@@ -111,6 +116,7 @@ type Service struct {
 	q                        *sqlcgen.Queries
 	mailer                   Mailer
 	credInvalidator          CredentialCacheInvalidator
+	quotaChecker             MemberQuotaChecker
 	appURL                   string
 	mfaRequiredForPrivileged bool
 	clk                      clock.Clock
@@ -121,6 +127,7 @@ type ServiceConfig struct {
 	Pool                     *pgxpool.Pool
 	Mailer                   Mailer
 	CredentialInvalidator    CredentialCacheInvalidator
+	QuotaChecker             MemberQuotaChecker
 	AppURL                   string
 	MFARequiredForPrivileged bool
 	Clock                    clock.Clock
@@ -140,6 +147,7 @@ func NewService(cfg ServiceConfig) (*Service, error) {
 		q:                        sqlcgen.New(cfg.Pool),
 		mailer:                   cfg.Mailer,
 		credInvalidator:          cfg.CredentialInvalidator,
+		quotaChecker:             cfg.QuotaChecker,
 		appURL:                   strings.TrimRight(strings.TrimSpace(cfg.AppURL), "/"),
 		mfaRequiredForPrivileged: cfg.MFARequiredForPrivileged,
 		clk:                      clk,
@@ -665,6 +673,11 @@ func (s *Service) CreateInvitation(ctx context.Context, tenantID database.Tenant
 	var created Invitation
 	err = database.WithTenantTx(ctx, s.pool, tenantID, func(tx pgx.Tx) error {
 		qtx := s.q.WithTx(tx)
+		if s.quotaChecker != nil {
+			if qErr := s.quotaChecker.CheckMemberLimitTx(ctx, tx, orgUUID); qErr != nil {
+				return ErrQuotaExceeded
+			}
+		}
 		row, err := qtx.CreateInvitation(ctx, sqlcgen.CreateInvitationParams{
 			ID:             mustScanUUID(invIDStr),
 			OrganizationID: orgUUID,

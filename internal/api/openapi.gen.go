@@ -323,6 +323,23 @@ type MemberResponse struct {
 	UserId         string    `json:"userId"`
 }
 
+// OrganizationQuotasResponse defines model for OrganizationQuotasResponse.
+type OrganizationQuotasResponse struct {
+	EventRetentionDays      int    `json:"eventRetentionDays"`
+	MaxAlertRulesPerProject int    `json:"maxAlertRulesPerProject"`
+	MaxArtifactBytes        int64  `json:"maxArtifactBytes"`
+	MaxEventsPerDay         int64  `json:"maxEventsPerDay"`
+	MaxEventsPerMonth       int64  `json:"maxEventsPerMonth"`
+	MaxMembers              int    `json:"maxMembers"`
+	MaxNotificationTargets  int    `json:"maxNotificationTargets"`
+	MaxProjects             int    `json:"maxProjects"`
+	MaxWhatsappPerMonth     int    `json:"maxWhatsappPerMonth"`
+	PlanId                  string `json:"planId"`
+	PlanName                string `json:"planName"`
+	RateLimitKeyPerMin      int    `json:"rateLimitKeyPerMin"`
+	RateLimitOrgPerMin      int    `json:"rateLimitOrgPerMin"`
+}
+
 // OrganizationResponse defines model for OrganizationResponse.
 type OrganizationResponse struct {
 	CreatedAt  time.Time  `json:"createdAt"`
@@ -346,6 +363,27 @@ type OrganizationSummary struct {
 // OrganizationSummaryListResponse defines model for OrganizationSummaryListResponse.
 type OrganizationSummaryListResponse struct {
 	Items []OrganizationSummary `json:"items"`
+}
+
+// OrganizationUsageResponse defines model for OrganizationUsageResponse.
+type OrganizationUsageResponse struct {
+	ActiveMembersAndInvites int `json:"activeMembersAndInvites"`
+	ActiveProjects          int `json:"activeProjects"`
+
+	// DayStart Current UTC day (YYYY-MM-DD)
+	DayStart         string `json:"dayStart"`
+	EventsLimitDay   int64  `json:"eventsLimitDay"`
+	EventsLimitMonth int64  `json:"eventsLimitMonth"`
+	EventsUsedMonth  int64  `json:"eventsUsedMonth"`
+	EventsUsedToday  int64  `json:"eventsUsedToday"`
+	MaxMembers       int    `json:"maxMembers"`
+	MaxProjects      int    `json:"maxProjects"`
+
+	// MonthStart Current UTC month (YYYY-MM)
+	MonthStart         string `json:"monthStart"`
+	PlanId             string `json:"planId"`
+	WhatsappLimitMonth int    `json:"whatsappLimitMonth"`
+	WhatsappUsedMonth  int64  `json:"whatsappUsedMonth"`
 }
 
 // PasswordForgotRequest defines model for PasswordForgotRequest.
@@ -831,6 +869,9 @@ type ServerInterface interface {
 	// CreateProjectEnvironment Create an environment for a project
 	// (POST /organizations/{orgId}/projects/{projectId}/environments)
 	CreateProjectEnvironment(w http.ResponseWriter, r *http.Request, orgId OrgIDPath, projectId ProjectIDPath, params CreateProjectEnvironmentParams)
+	// GetOrganizationQuotas Get the organization's plan limits and retention configuration
+	// (GET /organizations/{orgId}/quotas)
+	GetOrganizationQuotas(w http.ResponseWriter, r *http.Request, orgId OrgIDPath)
 	// ListOrganizationTeams List teams in the organization
 	// (GET /organizations/{orgId}/teams)
 	ListOrganizationTeams(w http.ResponseWriter, r *http.Request, orgId OrgIDPath)
@@ -843,6 +884,9 @@ type ServerInterface interface {
 	// TransferOrganizationOwnership Transfer organization ownership to another active member
 	// (POST /organizations/{orgId}/transfer-ownership)
 	TransferOrganizationOwnership(w http.ResponseWriter, r *http.Request, orgId OrgIDPath, params TransferOrganizationOwnershipParams)
+	// GetOrganizationUsage Get current quota usage for the organization (UTC day and month)
+	// (GET /organizations/{orgId}/usage)
+	GetOrganizationUsage(w http.ResponseWriter, r *http.Request, orgId OrgIDPath)
 	// GetStatus API status and build metadata
 	// (GET /status)
 	GetStatus(w http.ResponseWriter, r *http.Request)
@@ -1061,6 +1105,12 @@ func (_ Unimplemented) CreateProjectEnvironment(w http.ResponseWriter, r *http.R
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// GetOrganizationQuotas Get the organization's plan limits and retention configuration
+// (GET /organizations/{orgId}/quotas)
+func (_ Unimplemented) GetOrganizationQuotas(w http.ResponseWriter, r *http.Request, orgId OrgIDPath) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // ListOrganizationTeams List teams in the organization
 // (GET /organizations/{orgId}/teams)
 func (_ Unimplemented) ListOrganizationTeams(w http.ResponseWriter, r *http.Request, orgId OrgIDPath) {
@@ -1082,6 +1132,12 @@ func (_ Unimplemented) DeleteOrganizationTeam(w http.ResponseWriter, r *http.Req
 // TransferOrganizationOwnership Transfer organization ownership to another active member
 // (POST /organizations/{orgId}/transfer-ownership)
 func (_ Unimplemented) TransferOrganizationOwnership(w http.ResponseWriter, r *http.Request, orgId OrgIDPath, params TransferOrganizationOwnershipParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// GetOrganizationUsage Get current quota usage for the organization (UTC day and month)
+// (GET /organizations/{orgId}/usage)
+func (_ Unimplemented) GetOrganizationUsage(w http.ResponseWriter, r *http.Request, orgId OrgIDPath) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -2625,6 +2681,32 @@ func (siw *ServerInterfaceWrapper) CreateProjectEnvironment(w http.ResponseWrite
 	handler.ServeHTTP(w, r)
 }
 
+// GetOrganizationQuotas operation middleware
+func (siw *ServerInterfaceWrapper) GetOrganizationQuotas(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "orgId" -------------
+	var orgId OrgIDPath
+
+	err = runtime.BindStyledParameterWithOptions("simple", "orgId", chi.URLParam(r, "orgId"), &orgId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "orgId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetOrganizationQuotas(w, r, orgId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListOrganizationTeams operation middleware
 func (siw *ServerInterfaceWrapper) ListOrganizationTeams(w http.ResponseWriter, r *http.Request) {
 
@@ -2822,6 +2904,32 @@ func (siw *ServerInterfaceWrapper) TransferOrganizationOwnership(w http.Response
 	handler.ServeHTTP(w, r)
 }
 
+// GetOrganizationUsage operation middleware
+func (siw *ServerInterfaceWrapper) GetOrganizationUsage(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "orgId" -------------
+	var orgId OrgIDPath
+
+	err = runtime.BindStyledParameterWithOptions("simple", "orgId", chi.URLParam(r, "orgId"), &orgId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "orgId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetOrganizationUsage(w, r, orgId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetStatus operation middleware
 func (siw *ServerInterfaceWrapper) GetStatus(w http.ResponseWriter, r *http.Request) {
 
@@ -2997,6 +3105,12 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Patch(options.BaseURL+"/organizations/{orgId}", wrapper.UpdateOrganization)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/organizations/{orgId}/usage", wrapper.GetOrganizationUsage)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/organizations/{orgId}/quotas", wrapper.GetOrganizationQuotas)
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/organizations/{orgId}/transfer-ownership", wrapper.TransferOrganizationOwnership)

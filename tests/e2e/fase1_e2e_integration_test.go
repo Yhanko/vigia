@@ -170,6 +170,12 @@ func (s e2eAPIServer) RevokeOrganizationCredential(w http.ResponseWriter, r *htt
 func (s e2eAPIServer) RotateOrganizationCredential(w http.ResponseWriter, r *http.Request, id api.OrgIDPath, cid api.CredentialIDPath, p api.RotateOrganizationCredentialParams) {
 	s.cred.RotateOrganizationCredential(w, r, id, cid, p)
 }
+func (s e2eAPIServer) GetOrganizationUsage(w http.ResponseWriter, r *http.Request, _ api.OrgIDPath) {
+	httpserver.WriteError(w, r, http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "quotas not mounted in fase1 e2e")
+}
+func (s e2eAPIServer) GetOrganizationQuotas(w http.ResponseWriter, r *http.Request, _ api.OrgIDPath) {
+	httpserver.WriteError(w, r, http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "quotas not mounted in fase1 e2e")
+}
 
 func randomHex(t *testing.T, nBytes int) string {
 	t.Helper()

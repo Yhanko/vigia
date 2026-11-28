@@ -638,6 +638,58 @@ paths:
         default:
           $ref: "#/components/responses/DefaultError"
 
+  /organizations/{orgId}/usage:
+    get:
+      operationId: getOrganizationUsage
+      summary: Get current quota usage for the organization (UTC day and month)
+      security:
+        - sessionCookie: []
+      tags:
+        - organizations
+      parameters:
+        - $ref: "#/components/parameters/OrgIDPath"
+      responses:
+        "200":
+          description: Current usage summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OrganizationUsageResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        default:
+          $ref: "#/components/responses/DefaultError"
+
+  /organizations/{orgId}/quotas:
+    get:
+      operationId: getOrganizationQuotas
+      summary: Get the organization's plan limits and retention configuration
+      security:
+        - sessionCookie: []
+      tags:
+        - organizations
+      parameters:
+        - $ref: "#/components/parameters/OrgIDPath"
+      responses:
+        "200":
+          description: Plan limits and quotas
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OrganizationQuotasResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        default:
+          $ref: "#/components/responses/DefaultError"
+
   /organizations/{orgId}/transfer-ownership:
     post:
       operationId: transferOrganizationOwnership
@@ -2350,3 +2402,101 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/CredentialResponse"
+
+    OrganizationQuotasResponse:
+      type: object
+      required:
+        - planId
+        - planName
+        - maxEventsPerMonth
+        - maxEventsPerDay
+        - rateLimitOrgPerMin
+        - rateLimitKeyPerMin
+        - maxWhatsappPerMonth
+        - maxProjects
+        - maxMembers
+        - maxAlertRulesPerProject
+        - maxNotificationTargets
+        - maxArtifactBytes
+        - eventRetentionDays
+      properties:
+        planId:
+          type: string
+        planName:
+          type: string
+        maxEventsPerMonth:
+          type: integer
+          format: int64
+        maxEventsPerDay:
+          type: integer
+          format: int64
+        rateLimitOrgPerMin:
+          type: integer
+        rateLimitKeyPerMin:
+          type: integer
+        maxWhatsappPerMonth:
+          type: integer
+        maxProjects:
+          type: integer
+        maxMembers:
+          type: integer
+        maxAlertRulesPerProject:
+          type: integer
+        maxNotificationTargets:
+          type: integer
+        maxArtifactBytes:
+          type: integer
+          format: int64
+        eventRetentionDays:
+          type: integer
+
+    OrganizationUsageResponse:
+      type: object
+      required:
+        - planId
+        - dayStart
+        - monthStart
+        - eventsUsedToday
+        - eventsLimitDay
+        - eventsUsedMonth
+        - eventsLimitMonth
+        - whatsappUsedMonth
+        - whatsappLimitMonth
+        - activeProjects
+        - maxProjects
+        - activeMembersAndInvites
+        - maxMembers
+      properties:
+        planId:
+          type: string
+        dayStart:
+          type: string
+          description: Current UTC day (YYYY-MM-DD)
+        monthStart:
+          type: string
+          description: Current UTC month (YYYY-MM)
+        eventsUsedToday:
+          type: integer
+          format: int64
+        eventsLimitDay:
+          type: integer
+          format: int64
+        eventsUsedMonth:
+          type: integer
+          format: int64
+        eventsLimitMonth:
+          type: integer
+          format: int64
+        whatsappUsedMonth:
+          type: integer
+          format: int64
+        whatsappLimitMonth:
+          type: integer
+        activeProjects:
+          type: integer
+        maxProjects:
+          type: integer
+        activeMembersAndInvites:
+          type: integer
+        maxMembers:
+          type: integer

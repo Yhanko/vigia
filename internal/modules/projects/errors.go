@@ -14,4 +14,5 @@ var (
 	ErrInvalidInput        = errors.New("projects: invalid input")
 	ErrSlugConfirmation    = errors.New("projects: confirmation slug does not match project slug")
 	ErrPublicIDCollision   = errors.New("projects: failed to allocate unique public_id after retries")
+	ErrQuotaExceeded       = errors.New("projects: organization project limit exceeded")
 )

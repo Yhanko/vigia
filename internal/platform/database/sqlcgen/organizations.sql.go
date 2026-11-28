@@ -92,7 +92,7 @@ SET status = 'active',
     updated_at = $2::timestamptz
 WHERE id = $1
   AND status = 'pending_deletion'
-RETURNING id, name, slug, status, purge_after, created_at, updated_at
+RETURNING id, name, slug, status, purge_after, created_at, updated_at, plan
 `
 
 type CancelOrganizationDeletionParams struct {
@@ -111,6 +111,7 @@ func (q *Queries) CancelOrganizationDeletion(ctx context.Context, arg CancelOrga
 		&i.PurgeAfter,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Plan,
 	)
 	return i, err
 }
@@ -220,7 +221,7 @@ const createOrganization = `-- name: CreateOrganization :one
 
 INSERT INTO organizations (id, name, slug)
 VALUES ($1, btrim($2), lower(btrim($3)))
-RETURNING id, name, slug, status, purge_after, created_at, updated_at
+RETURNING id, name, slug, status, purge_after, created_at, updated_at, plan
 `
 
 type CreateOrganizationParams struct {
@@ -242,6 +243,7 @@ func (q *Queries) CreateOrganization(ctx context.Context, arg CreateOrganization
 		&i.PurgeAfter,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Plan,
 	)
 	return i, err
 }
@@ -372,7 +374,7 @@ func (q *Queries) GetMembershipByUser(ctx context.Context, arg GetMembershipByUs
 }
 
 const getOrganizationByID = `-- name: GetOrganizationByID :one
-SELECT id, name, slug, status, purge_after, created_at, updated_at
+SELECT id, name, slug, status, purge_after, created_at, updated_at, plan
 FROM organizations
 WHERE id = $1
 `
@@ -388,6 +390,7 @@ func (q *Queries) GetOrganizationByID(ctx context.Context, id pgtype.UUID) (Orga
 		&i.PurgeAfter,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Plan,
 	)
 	return i, err
 }
@@ -724,7 +727,7 @@ SET status = 'pending_deletion',
     updated_at = $3::timestamptz
 WHERE id = $1
   AND status = 'active'
-RETURNING id, name, slug, status, purge_after, created_at, updated_at
+RETURNING id, name, slug, status, purge_after, created_at, updated_at, plan
 `
 
 type ScheduleOrganizationDeletionParams struct {
@@ -744,6 +747,7 @@ func (q *Queries) ScheduleOrganizationDeletion(ctx context.Context, arg Schedule
 		&i.PurgeAfter,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Plan,
 	)
 	return i, err
 }
@@ -791,7 +795,7 @@ SET name = btrim($2),
     updated_at = $3::timestamptz
 WHERE id = $1
   AND status = 'active'
-RETURNING id, name, slug, status, purge_after, created_at, updated_at
+RETURNING id, name, slug, status, purge_after, created_at, updated_at, plan
 `
 
 type UpdateOrganizationParams struct {
@@ -811,6 +815,7 @@ func (q *Queries) UpdateOrganization(ctx context.Context, arg UpdateOrganization
 		&i.PurgeAfter,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Plan,
 	)
 	return i, err
 }

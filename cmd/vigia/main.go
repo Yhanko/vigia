@@ -15,6 +15,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
+	"github.com/riverqueue/river"
 
 	"github.com/Yhanko/vigia/internal/api"
 	"github.com/Yhanko/vigia/internal/modules/audit"
@@ -24,6 +25,7 @@ import (
 	"github.com/Yhanko/vigia/internal/modules/identity/session"
 	"github.com/Yhanko/vigia/internal/modules/organizations"
 	"github.com/Yhanko/vigia/internal/modules/projects"
+	"github.com/Yhanko/vigia/internal/modules/quotas"
 	"github.com/Yhanko/vigia/internal/platform/clock"
 	"github.com/Yhanko/vigia/internal/platform/config"
 	"github.com/Yhanko/vigia/internal/platform/crypto"
@@ -208,6 +210,7 @@ func runAPI() error {
 		audHandler       *audit.Handler
 		projHandler      *projects.Handler
 		credHandler      *credentials.Handler
+		quotaHandler     *quotas.Handler
 		apiAuthMW        func(http.Handler) http.Handler
 		apiIdempotencyMW func(http.Handler) http.Handler
 		credSvc          *credentials.Service
@@ -321,13 +324,30 @@ func runAPI() error {
 		}
 
 		var orgMailer organizations.Mailer
+		var quotaMailer quotas.Mailer
 		if mailSender != nil {
 			orgMailer = mailSender
+			quotaMailer = mailSender
 		}
+
+		// Create quota service first (authorizer set after orgSvc is created, or via two-step).
+		// Pass quotaSvc into orgSvc and projSvc for hard plan limits (ADR-009 §3.1).
+		quotaCheckerSvc, err := quotas.NewService(quotas.ServiceConfig{
+			Pool:   pool,
+			Redis:  rdb,
+			Mailer: quotaMailer,
+			Clock:  clk,
+			Logger: logger,
+		})
+		if err != nil {
+			return err
+		}
+
 		orgSvc, err := organizations.NewService(organizations.ServiceConfig{
 			Pool:                     pool,
 			Mailer:                   orgMailer,
 			CredentialInvalidator:    orgCredInvalidator,
+			QuotaChecker:             quotaCheckerSvc,
 			AppURL:                   cfg.AppURL,
 			MFARequiredForPrivileged: cfg.MFARequiredForPrivileged,
 			Clock:                    clk,
@@ -336,6 +356,22 @@ func runAPI() error {
 			return err
 		}
 		orgHandler, err = organizations.NewHandler(orgSvc, cfg.TrustedProxies, logger)
+		if err != nil {
+			return err
+		}
+
+		quotaSvc, err := quotas.NewService(quotas.ServiceConfig{
+			Pool:       pool,
+			Redis:      rdb,
+			Mailer:     quotaMailer,
+			Authorizer: orgSvc,
+			Clock:      clk,
+			Logger:     logger,
+		})
+		if err != nil {
+			return err
+		}
+		quotaHandler, err = quotas.NewHandler(quotaSvc, cfg.TrustedProxies, logger)
 		if err != nil {
 			return err
 		}
@@ -352,6 +388,7 @@ func runAPI() error {
 		projSvc, err := projects.NewService(projects.ServiceConfig{
 			Pool:                     pool,
 			CredentialInvalidator:    credInvalidator,
+			QuotaChecker:             quotaSvc,
 			MFARequiredForPrivileged: cfg.MFARequiredForPrivileged,
 			Clock:                    clk,
 		})
@@ -374,6 +411,7 @@ func runAPI() error {
 		audit:       audHandler,
 		projects:    projHandler,
 		credentials: credHandler,
+		quotas:      quotaHandler,
 	}
 
 	srv := httpserver.New(httpserver.Options{
@@ -438,6 +476,7 @@ type compositeAPIServer struct {
 	audit       *audit.Handler
 	projects    *projects.Handler
 	credentials *credentials.Handler
+	quotas      *quotas.Handler
 }
 
 func (s compositeAPIServer) GetStatus(w http.ResponseWriter, _ *http.Request) {
@@ -770,6 +809,22 @@ func (s compositeAPIServer) RotateOrganizationCredential(w http.ResponseWriter, 
 	s.credentials.RotateOrganizationCredential(w, r, orgId, credentialId, params)
 }
 
+func (s compositeAPIServer) GetOrganizationUsage(w http.ResponseWriter, r *http.Request, orgId api.OrgIDPath) {
+	if s.quotas == nil {
+		writeServiceUnavailable(w, r)
+		return
+	}
+	s.quotas.GetOrganizationUsage(w, r, orgId)
+}
+
+func (s compositeAPIServer) GetOrganizationQuotas(w http.ResponseWriter, r *http.Request, orgId api.OrgIDPath) {
+	if s.quotas == nil {
+		writeServiceUnavailable(w, r)
+		return
+	}
+	s.quotas.GetOrganizationQuotas(w, r, orgId)
+}
+
 func writeServiceUnavailable(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Retry-After", "5")
 	httpserver.WriteError(w, r, http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "Service temporarily unavailable.")
@@ -902,12 +957,46 @@ func runRiverRole(role jobs.Role, serviceName string) error {
 		return err
 	}
 
+	var (
+		workers      *river.Workers
+		periodicJobs []*river.PeriodicJob
+		rdb          *redis.Client
+	)
+	if role == jobs.RoleWorker && cfg.RedisAddr != "" {
+		rdb, err = queue.NewRedisClient(ctx, cfg.RedisAddr, cfg.RedisPassword.Value())
+		if err != nil {
+			return err
+		}
+		defer rdb.Close()
+
+		quotaSvc, err := quotas.NewService(quotas.ServiceConfig{
+			Pool:   pool,
+			Redis:  rdb,
+			Clock:  clock.System{},
+			Logger: logger,
+		})
+		if err != nil {
+			return err
+		}
+		workers = river.NewWorkers()
+		river.AddWorker(workers, quotas.NewFlushUsageWorker(quotaSvc))
+		periodicJobs = append(periodicJobs, river.NewPeriodicJob(
+			river.PeriodicInterval(time.Minute),
+			func() (river.JobArgs, *river.InsertOpts) {
+				return quotas.FlushUsageArgs{}, nil
+			},
+			&river.PeriodicJobOpts{RunOnStart: false},
+		))
+	}
+
 	var metrics jobs.Metrics
 	client, err := jobs.NewClient(jobs.ClientOptions{
-		Pool:    pool,
-		Role:    role,
-		Logger:  logger,
-		Metrics: &metrics,
+		Pool:         pool,
+		Role:         role,
+		Workers:      workers,
+		PeriodicJobs: periodicJobs,
+		Logger:       logger,
+		Metrics:      &metrics,
 	})
 	if err != nil {
 		return err

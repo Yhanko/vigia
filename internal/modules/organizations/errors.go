@@ -13,6 +13,7 @@ var (
 	ErrEmailNotVerified  = errors.New("organizations: email address must be verified")
 	ErrMFASetupRequired  = errors.New("organizations: mfa setup required for privileged role")
 	ErrReauthRequired    = errors.New("organizations: recent authentication required")
+	ErrQuotaExceeded     = errors.New("organizations: plan member limit exceeded")
 )
 
 // ValidationError carries field-level validation failures mapped to 400 VALIDATION_FAILED.

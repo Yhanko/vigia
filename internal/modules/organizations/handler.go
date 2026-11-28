@@ -363,6 +363,8 @@ func (h *Handler) writeError(w http.ResponseWriter, r *http.Request, err error) 
 		httpserver.WriteError(w, r, http.StatusNotFound, "RESOURCE_NOT_FOUND", "The requested resource was not found.")
 	case errors.Is(err, ErrConflict):
 		httpserver.WriteError(w, r, http.StatusConflict, "RESOURCE_CONFLICT", "The requested resource already exists or conflicts with current state.")
+	case errors.Is(err, ErrQuotaExceeded):
+		httpserver.WriteError(w, r, http.StatusTooManyRequests, "QUOTA_EXCEEDED", "Organization member limit reached for your plan.")
 	default:
 		if h.logger != nil {
 			h.logger.Error("organizations handler internal error",

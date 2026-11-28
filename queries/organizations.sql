@@ -4,10 +4,10 @@
 -- name: CreateOrganization :one
 INSERT INTO organizations (id, name, slug)
 VALUES ($1, btrim($2), lower(btrim($3)))
-RETURNING id, name, slug, status, purge_after, created_at, updated_at;
+RETURNING id, name, slug, status, purge_after, created_at, updated_at, plan;
 
 -- name: GetOrganizationByID :one
-SELECT id, name, slug, status, purge_after, created_at, updated_at
+SELECT id, name, slug, status, purge_after, created_at, updated_at, plan
 FROM organizations
 WHERE id = $1;
 
@@ -17,7 +17,7 @@ SET name = btrim($2),
     updated_at = sqlc.arg(updated_at)::timestamptz
 WHERE id = $1
   AND status = 'active'
-RETURNING id, name, slug, status, purge_after, created_at, updated_at;
+RETURNING id, name, slug, status, purge_after, created_at, updated_at, plan;
 
 -- name: ScheduleOrganizationDeletion :one
 UPDATE organizations
@@ -26,7 +26,7 @@ SET status = 'pending_deletion',
     updated_at = sqlc.arg(updated_at)::timestamptz
 WHERE id = $1
   AND status = 'active'
-RETURNING id, name, slug, status, purge_after, created_at, updated_at;
+RETURNING id, name, slug, status, purge_after, created_at, updated_at, plan;
 
 -- name: CancelOrganizationDeletion :one
 UPDATE organizations
@@ -35,7 +35,7 @@ SET status = 'active',
     updated_at = sqlc.arg(updated_at)::timestamptz
 WHERE id = $1
   AND status = 'pending_deletion'
-RETURNING id, name, slug, status, purge_after, created_at, updated_at;
+RETURNING id, name, slug, status, purge_after, created_at, updated_at, plan;
 
 -- name: CreateMembership :one
 INSERT INTO memberships (id, organization_id, user_id, role, status)

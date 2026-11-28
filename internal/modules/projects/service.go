@@ -43,6 +43,11 @@ type CredentialCacheInvalidator interface {
 	InvalidateCache(ctx context.Context, kind, prefix string, publicKey *string)
 }
 
+// ProjectQuotaChecker enforces the organization's plan project limit inside WithTenantTx.
+type ProjectQuotaChecker interface {
+	CheckProjectLimitTx(ctx context.Context, tx pgx.Tx, orgUUID pgtype.UUID) error
+}
+
 // Project represents a tenant-scoped Vigia project.
 type Project struct {
 	ID             string
@@ -73,6 +78,7 @@ type Service struct {
 	pool                     *pgxpool.Pool
 	q                        *sqlcgen.Queries
 	invalidator              CredentialCacheInvalidator
+	quotaChecker             ProjectQuotaChecker
 	mfaRequiredForPrivileged bool
 	clk                      clock.Clock
 }
@@ -81,6 +87,7 @@ type Service struct {
 type ServiceConfig struct {
 	Pool                     *pgxpool.Pool
 	CredentialInvalidator    CredentialCacheInvalidator
+	QuotaChecker             ProjectQuotaChecker
 	MFARequiredForPrivileged bool
 	Clock                    clock.Clock
 }
@@ -98,6 +105,7 @@ func NewService(cfg ServiceConfig) (*Service, error) {
 		pool:                     cfg.Pool,
 		q:                        sqlcgen.New(cfg.Pool),
 		invalidator:              cfg.CredentialInvalidator,
+		quotaChecker:             cfg.QuotaChecker,
 		mfaRequiredForPrivileged: cfg.MFARequiredForPrivileged,
 		clk:                      clk,
 	}, nil
@@ -138,6 +146,11 @@ func (s *Service) CreateProject(ctx context.Context, tenantID database.TenantID,
 			qtx := s.q.WithTx(tx)
 			if err := s.requirePermission(ctx, qtx, orgUUID, userUUID, actor.MFAEnabled, organizations.PermProjectCreate); err != nil {
 				return err
+			}
+			if s.quotaChecker != nil {
+				if qErr := s.quotaChecker.CheckProjectLimitTx(ctx, tx, orgUUID); qErr != nil {
+					return ErrQuotaExceeded
+				}
 			}
 			var cErr error
 			row, cErr = qtx.CreateProject(ctx, sqlcgen.CreateProjectParams{

@@ -16,6 +16,8 @@ type Querier interface {
 	CancelOrganizationDeletion(ctx context.Context, arg CancelOrganizationDeletionParams) (Organization, error)
 	ConsumeUserToken(ctx context.Context, arg ConsumeUserTokenParams) (ConsumeUserTokenRow, error)
 	CountActiveOwners(ctx context.Context, organizationID pgtype.UUID) (int64, error)
+	CountActiveProjectsByOrg(ctx context.Context, organizationID pgtype.UUID) (int32, error)
+	CountMembersAndPendingInvitesByOrg(ctx context.Context, arg CountMembersAndPendingInvitesByOrgParams) (int32, error)
 	CreateAPICredential(ctx context.Context, arg CreateAPICredentialParams) (CreateAPICredentialRow, error)
 	CreateEnvironment(ctx context.Context, arg CreateEnvironmentParams) (Environment, error)
 	CreateInvitation(ctx context.Context, arg CreateInvitationParams) (CreateInvitationRow, error)
@@ -34,6 +36,7 @@ type Querier interface {
 	CreateUserToken(ctx context.Context, arg CreateUserTokenParams) error
 	DeleteEnvironment(ctx context.Context, arg DeleteEnvironmentParams) (int64, error)
 	DeleteMembership(ctx context.Context, arg DeleteMembershipParams) (int64, error)
+	DeleteOldUsageAggregates(ctx context.Context, arg DeleteOldUsageAggregatesParams) (int64, error)
 	DeleteTeam(ctx context.Context, arg DeleteTeamParams) (int64, error)
 	EnableUserMFA(ctx context.Context, arg EnableUserMFAParams) (int64, error)
 	GetActiveAPICredentialByID(ctx context.Context, arg GetActiveAPICredentialByIDParams) (GetActiveAPICredentialByIDRow, error)
@@ -42,9 +45,11 @@ type Querier interface {
 	GetMembershipByID(ctx context.Context, arg GetMembershipByIDParams) (Membership, error)
 	GetMembershipByUser(ctx context.Context, arg GetMembershipByUserParams) (Membership, error)
 	GetOrganizationByID(ctx context.Context, id pgtype.UUID) (Organization, error)
+	GetOrganizationPlan(ctx context.Context, id pgtype.UUID) (GetOrganizationPlanRow, error)
 	GetPendingMFASessionByTokenHash(ctx context.Context, arg GetPendingMFASessionByTokenHashParams) (GetPendingMFASessionByTokenHashRow, error)
 	GetProjectByID(ctx context.Context, arg GetProjectByIDParams) (Project, error)
 	GetTeamByID(ctx context.Context, arg GetTeamByIDParams) (Team, error)
+	GetUsageAggregate(ctx context.Context, arg GetUsageAggregateParams) (int64, error)
 	GetUserByEmail(ctx context.Context, email string) (User, error)
 	GetUserByID(ctx context.Context, id pgtype.UUID) (User, error)
 	GetUserSecurityStatus(ctx context.Context, id pgtype.UUID) (GetUserSecurityStatusRow, error)
@@ -54,6 +59,7 @@ type Querier interface {
 	// Every query MUST run inside database.WithTenantTx(ctx, pool, tenantID, ...).
 	InsertTenantAuditLog(ctx context.Context, arg InsertTenantAuditLogParams) error
 	InvalidateUserTokensByKind(ctx context.Context, arg InvalidateUserTokensByKindParams) error
+	ListOrgOwnerAndAdminEmails(ctx context.Context, organizationID pgtype.UUID) ([]string, error)
 	ListOrganizationInvitations(ctx context.Context, arg ListOrganizationInvitationsParams) ([]ListOrganizationInvitationsRow, error)
 	ListOrganizationMembers(ctx context.Context, arg ListOrganizationMembersParams) ([]ListOrganizationMembersRow, error)
 	ListOrganizationTeams(ctx context.Context, arg ListOrganizationTeamsParams) ([]Team, error)
@@ -63,6 +69,7 @@ type Querier interface {
 	ListTenantAuditLogsAfterCursor(ctx context.Context, arg ListTenantAuditLogsAfterCursorParams) ([]AuditLog, error)
 	ListTenantAuditLogsFirstPage(ctx context.Context, arg ListTenantAuditLogsFirstPageParams) ([]AuditLog, error)
 	MarkUserEmailVerified(ctx context.Context, arg MarkUserEmailVerifiedParams) error
+	RecordQuotaNotification(ctx context.Context, arg RecordQuotaNotificationParams) (int32, error)
 	RemoveTeamMember(ctx context.Context, arg RemoveTeamMemberParams) (int64, error)
 	RevokeAPICredential(ctx context.Context, arg RevokeAPICredentialParams) (RevokeAPICredentialRow, error)
 	RevokeAllOrgCredentials(ctx context.Context, arg RevokeAllOrgCredentialsParams) ([]RevokeAllOrgCredentialsRow, error)
@@ -84,6 +91,7 @@ type Querier interface {
 	UpdateUserMFALastUsedStep(ctx context.Context, arg UpdateUserMFALastUsedStepParams) (int64, error)
 	UpdateUserPasswordHash(ctx context.Context, arg UpdateUserPasswordHashParams) error
 	UpdateUserStatus(ctx context.Context, arg UpdateUserStatusParams) error
+	UpsertUsageAggregate(ctx context.Context, arg UpsertUsageAggregateParams) error
 }
 
 var _ Querier = (*Queries)(nil)
