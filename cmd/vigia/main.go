@@ -29,6 +29,7 @@ import (
 	"github.com/Yhanko/vigia/internal/platform/crypto"
 	"github.com/Yhanko/vigia/internal/platform/database"
 	"github.com/Yhanko/vigia/internal/platform/httpserver"
+	"github.com/Yhanko/vigia/internal/platform/jobs"
 	"github.com/Yhanko/vigia/internal/platform/mailer"
 	"github.com/Yhanko/vigia/internal/platform/queue"
 	"github.com/Yhanko/vigia/internal/platform/ratelimit"
@@ -46,12 +47,12 @@ const usage = `Usage: vigia <command>
 
 Commands:
   api                            Start the HTTP API server
+  worker                         Start the River background worker (ingest, alerts, maintenance + periodic jobs)
+  dispatcher                     Start the River notification dispatcher (notifications queue)
   migrate [up|down|status|version]  Run embedded SQL database migrations (default: up)
   db ensure-roles                Create/update PostgreSQL runtime roles (vigia_app, vigia_definer) without running migrations
   healthcheck                    Check local /health/live (for container HEALTHCHECK)
-  version                        Print binary version
-
-Planned (next phases): worker, scheduler, evaluator, dispatcher`
+  version                        Print binary version`
 
 func main() {
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
@@ -65,6 +66,10 @@ func main() {
 	switch os.Args[1] {
 	case "api":
 		err = runAPI()
+	case "worker":
+		err = runRiverRole(jobs.RoleWorker, "vigia-worker")
+	case "dispatcher":
+		err = runRiverRole(jobs.RoleDispatcher, "vigia-dispatcher")
 	case "migrate":
 		action := "up"
 		if len(os.Args) >= 3 {
@@ -857,6 +862,69 @@ func runEnsureRoles() error {
 		return err
 	}
 	logger.Info("PostgreSQL runtime roles ensured")
+	return nil
+}
+
+// runRiverRole runs a River job processor (worker or dispatcher) with graceful
+// shutdown bounded by WORKER_SHUTDOWN_TIMEOUT (ADR-004 §3.2, TASKS 2.0).
+func runRiverRole(role jobs.Role, serviceName string) error {
+	cfg, err := config.Load()
+	if err != nil {
+		return err
+	}
+	logger, err := telemetry.NewLogger(os.Stdout, cfg.LogLevel, serviceName, cfg.AppEnv)
+	if err != nil {
+		return err
+	}
+	slog.SetDefault(logger)
+
+	if cfg.DatabaseURL == "" {
+		return fmt.Errorf("%s: DATABASE_URL is required", serviceName)
+	}
+	dsn, err := cfg.DatabaseDSN()
+	if err != nil {
+		return err
+	}
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	pool, err := database.NewPool(ctx, dsn, database.PoolOptions{
+		MaxConns:         cfg.DatabaseMaxConns,
+		StatementTimeout: cfg.DatabaseStatementTimeout,
+	})
+	if err != nil {
+		return err
+	}
+	defer pool.Close()
+
+	if err := enforceRuntimeDBRole(cfg.AppEnv, database.VerifyNonPrivilegedRole(ctx, pool), logger); err != nil {
+		return err
+	}
+
+	var metrics jobs.Metrics
+	client, err := jobs.NewClient(jobs.ClientOptions{
+		Pool:    pool,
+		Role:    role,
+		Logger:  logger,
+		Metrics: &metrics,
+	})
+	if err != nil {
+		return err
+	}
+	if err := client.Start(ctx); err != nil {
+		return fmt.Errorf("%s start river: %w", serviceName, err)
+	}
+	logger.Info("river processor started", "role", string(role))
+
+	<-ctx.Done()
+	logger.Info("shutting down river processor", "role", string(role), "timeout", cfg.WorkerShutdownTimeout)
+	stopCtx, cancel := context.WithTimeout(context.Background(), cfg.WorkerShutdownTimeout)
+	defer cancel()
+	if err := client.Stop(stopCtx); err != nil {
+		return fmt.Errorf("%s graceful stop: %w", serviceName, err)
+	}
+	logger.Info("river processor stopped cleanly", "role", string(role), "completed", metrics.Completed.Load(), "failed", metrics.Failed.Load())
 	return nil
 }
 

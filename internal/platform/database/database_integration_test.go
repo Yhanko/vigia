@@ -315,6 +315,20 @@ func TestDatabaseIntegration(t *testing.T) {
 				t.Fatalf("vigia_app has forbidden DELETE privilege on %s", tbl)
 			}
 		}
+
+		// Guard: River job queue tables grant access ONLY to vigia_app, never to PUBLIC (ADR-004 §3.1).
+		for _, tbl := range []string{"river_job", "river_leader", "river_queue", "river_migration", "river_notification"} {
+			var appSel, pubSel bool
+			if err := adminPool.QueryRow(ctx, `
+				SELECT has_table_privilege('vigia_app', 'public.' || $1, 'SELECT'),
+				       has_table_privilege('public', 'public.' || $1, 'SELECT')
+			`, tbl).Scan(&appSel, &pubSel); err != nil {
+				t.Fatalf("query river table %s privileges: %v", tbl, err)
+			}
+			if !appSel || pubSel {
+				t.Fatalf("river table %s privileges: vigia_app=%v PUBLIC=%v, want (true, false)", tbl, appSel, pubSel)
+			}
+		}
 	})
 
 	t.Run("RLS fail-closed, cross-tenant isolation, and append-only audit_logs", func(t *testing.T) {

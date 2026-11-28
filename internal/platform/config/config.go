@@ -74,11 +74,14 @@ type Config struct {
 	IngestMaxBatchItems   int
 	QueryMaxRangeDays     int
 
-	SMTPURL                  string
-	MFARequiredForPrivileged bool
-	VAPIDPublicKey           string
-	VAPIDPrivateKey          Secret
-	VAPIDSubject             string
+	SMTPURL                    string
+	MFARequiredForPrivileged   bool
+	WorkerShutdownTimeout      time.Duration
+	IngestPublicURL            string
+	IngestAdvertiseUnsupported bool
+	VAPIDPublicKey             string
+	VAPIDPrivateKey            Secret
+	VAPIDSubject               string
 }
 
 // Load reads configuration from environment variables (and *_FILE secret paths)
@@ -90,19 +93,21 @@ func Load() (Config, error) {
 // LoadFrom loads configuration using the supplied lookup function (useful for tests).
 func LoadFrom(getenv func(string) string) (Config, error) {
 	cfg := Config{
-		AppEnv:                   "development",
-		Port:                     8080,
-		AdminPort:                9090,
-		AppURL:                   "http://127.0.0.1:8080",
-		LogLevel:                 "info",
-		DatabaseMaxConns:         DefaultDatabaseMaxConns,
-		DatabaseStatementTimeout: DefaultDatabaseStatementTimeout,
-		CORSOrigins:              []string{"http://127.0.0.1:5173"},
-		APIMaxBodyBytes:          256 << 10, // 256 KiB
-		IngestMaxPayloadBytes:    1 << 20,   // 1 MiB
-		IngestMaxBatchItems:      500,
-		QueryMaxRangeDays:        31,
-		SMTPURL:                  "smtp://mailpit:1025",
+		AppEnv:                     "development",
+		Port:                       8080,
+		AdminPort:                  9090,
+		AppURL:                     "http://127.0.0.1:8080",
+		LogLevel:                   "info",
+		DatabaseMaxConns:           DefaultDatabaseMaxConns,
+		DatabaseStatementTimeout:   DefaultDatabaseStatementTimeout,
+		CORSOrigins:                []string{"http://127.0.0.1:5173"},
+		APIMaxBodyBytes:            256 << 10, // 256 KiB
+		IngestMaxPayloadBytes:      1 << 20,   // 1 MiB
+		IngestMaxBatchItems:        500,
+		QueryMaxRangeDays:          31,
+		SMTPURL:                    "smtp://mailpit:1025",
+		WorkerShutdownTimeout:      30 * time.Second,
+		IngestAdvertiseUnsupported: true,
 	}
 
 	if v := strings.TrimSpace(getenv("APP_ENV")); v != "" {
@@ -278,6 +283,23 @@ func LoadFrom(getenv func(string) string) (Config, error) {
 			return Config{}, fmt.Errorf("invalid MFA_REQUIRED_FOR_PRIVILEGED %q: must be boolean", v)
 		}
 		cfg.MFARequiredForPrivileged = b
+	}
+	if v := strings.TrimSpace(getenv("WORKER_SHUTDOWN_TIMEOUT")); v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil || d <= 0 {
+			return Config{}, fmt.Errorf("invalid WORKER_SHUTDOWN_TIMEOUT %q: must be positive duration", v)
+		}
+		cfg.WorkerShutdownTimeout = d
+	}
+	if v := strings.TrimSpace(getenv("INGEST_PUBLIC_URL")); v != "" {
+		cfg.IngestPublicURL = strings.TrimRight(v, "/")
+	}
+	if v := strings.TrimSpace(getenv("INGEST_ADVERTISE_UNSUPPORTED")); v != "" {
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			return Config{}, fmt.Errorf("invalid INGEST_ADVERTISE_UNSUPPORTED %q: must be boolean", v)
+		}
+		cfg.IngestAdvertiseUnsupported = b
 	}
 
 	cfg.VAPIDPublicKey = strings.TrimSpace(getenv("VAPID_PUBLIC_KEY"))
