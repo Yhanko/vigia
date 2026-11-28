@@ -1,6 +1,7 @@
 package credentials
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -25,10 +26,11 @@ import (
 )
 
 const (
-	cacheTTL           = 60 * time.Second
-	anomalousIPSetTTL  = 30 * 24 * time.Hour
-	lastUsedFlushEvery = 30 * time.Second
-	lastUsedMaxBatch   = 256
+	cacheTTL                 = 60 * time.Second
+	dsnNegativeCacheSentinel = "NEG"
+	anomalousIPSetTTL        = 30 * 24 * time.Hour
+	lastUsedFlushEvery       = 30 * time.Second
+	lastUsedMaxBatch         = 256
 )
 
 var (
@@ -707,9 +709,10 @@ func (s *Service) AuthenticateSecret(ctx context.Context, rawKey, clientIP strin
 	}, nil
 }
 
-// AuthenticateDSN resolves a 32-hex public DSN key via Redis cache (60s TTL) or
-// SECURITY DEFINER lookup_dsn_key, verifying active status, expiry, and exact
-// project public_id match (ADR-005, ADR-017 §3.2, TASKS 2.1).
+// AuthenticateDSN resolves a 32-hex public DSN key via Redis cache (60s TTL,
+// including negative caching for unknown/revoked/expired keys, CTO #40) or
+// SECURITY DEFINER lookup_dsn_key via sqlc (CTO #39). Returns ErrBackendUnavailable
+// on non-ErrNoRows DB errors so callers respond 503 instead of 403 (CTO #38).
 func (s *Service) AuthenticateDSN(ctx context.Context, publicKey string, expectedProjectPublicID int64) (AuthenticatedDSN, error) {
 	if len(publicKey) != DSNKeyLength || !isLowerHex(publicKey) || expectedProjectPublicID <= 0 {
 		return AuthenticatedDSN{}, ErrInvalidCredential
@@ -721,6 +724,9 @@ func (s *Service) AuthenticateDSN(ctx context.Context, publicKey string, expecte
 	var meta *AuthenticatedDSN
 	if s.cache != nil {
 		if raw, cErr := s.cache.Get(ctx, cacheKey); cErr == nil && len(raw) > 0 {
+			if bytes.Equal(raw, []byte(dsnNegativeCacheSentinel)) {
+				return AuthenticatedDSN{}, ErrInvalidCredential
+			}
 			var decoded AuthenticatedDSN
 			if json.Unmarshal(raw, &decoded) == nil {
 				meta = &decoded
@@ -729,56 +735,44 @@ func (s *Service) AuthenticateDSN(ctx context.Context, publicKey string, expecte
 	}
 
 	if meta == nil {
-		var (
-			credID, orgID, projID, envID pgtype.UUID
-			projPublicID                 int64
-			allowedOrigins               []string
-			expiresAt, revokedAt         pgtype.Timestamptz
-			allowReqBody, allowUserIP    bool
-			filtersJSON                  []byte
-		)
-		row := s.pool.QueryRow(ctx,
-			`SELECT credential_id, organization_id, project_id, project_public_id,
-			        environment_id, allowed_origins, expires_at, revoked_at,
-			        allow_request_body, allow_user_ip, inbound_filters
-			 FROM lookup_dsn_key($1)`,
-			publicKey,
-		)
-		if scanErr := row.Scan(
-			&credID, &orgID, &projID, &projPublicID,
-			&envID, &allowedOrigins, &expiresAt, &revokedAt,
-			&allowReqBody, &allowUserIP, &filtersJSON,
-		); scanErr != nil {
-			return AuthenticatedDSN{}, ErrInvalidCredential
+		row, dbErr := s.q.LookupDSNKey(ctx, publicKey)
+		if dbErr != nil {
+			if errors.Is(dbErr, pgx.ErrNoRows) {
+				s.cacheNegativeDSN(ctx, cacheKey)
+				return AuthenticatedDSN{}, ErrInvalidCredential
+			}
+			return AuthenticatedDSN{}, fmt.Errorf("%w: %w", ErrBackendUnavailable, dbErr)
 		}
-		if revokedAt.Valid {
+		if row.RevokedAt.Valid {
+			s.cacheNegativeDSN(ctx, cacheKey)
 			return AuthenticatedDSN{}, ErrInvalidCredential
 		}
 		var expPtr *time.Time
-		if expiresAt.Valid {
-			t := expiresAt.Time.UTC()
+		if row.ExpiresAt.Valid {
+			t := row.ExpiresAt.Time.UTC()
 			if !t.After(now) {
+				s.cacheNegativeDSN(ctx, cacheKey)
 				return AuthenticatedDSN{}, ErrInvalidCredential
 			}
 			expPtr = &t
 		}
 		envStr := ""
-		if envID.Valid {
-			envStr = envID.String()
+		if row.EnvironmentID.Valid {
+			envStr = row.EnvironmentID.String()
 		}
 		filters := InboundFilters{BrowserExtensions: true, Crawlers: true}
-		if len(filtersJSON) > 0 {
-			_ = json.Unmarshal(filtersJSON, &filters)
+		if len(row.InboundFilters) > 0 {
+			_ = json.Unmarshal(row.InboundFilters, &filters)
 		}
 		meta = &AuthenticatedDSN{
-			ID:               credID.String(),
-			OrganizationID:   orgID.String(),
-			ProjectID:        projID.String(),
-			ProjectPublicID:  projPublicID,
+			ID:               row.CredentialID.String(),
+			OrganizationID:   row.OrganizationID.String(),
+			ProjectID:        row.ProjectID.String(),
+			ProjectPublicID:  row.ProjectPublicID,
 			EnvironmentID:    envStr,
-			AllowedOrigins:   allowedOrigins,
-			AllowRequestBody: allowReqBody,
-			AllowUserIP:      allowUserIP,
+			AllowedOrigins:   row.AllowedOrigins,
+			AllowRequestBody: row.AllowRequestBody,
+			AllowUserIP:      row.AllowUserIp,
 			InboundFilters:   filters,
 			ExpiresAt:        expPtr,
 		}
@@ -790,6 +784,7 @@ func (s *Service) AuthenticateDSN(ctx context.Context, publicKey string, expecte
 	}
 
 	if meta.ExpiresAt != nil && !meta.ExpiresAt.After(now) {
+		s.cacheNegativeDSN(ctx, cacheKey)
 		return AuthenticatedDSN{}, ErrInvalidCredential
 	}
 	if meta.ProjectPublicID != expectedProjectPublicID {
@@ -798,6 +793,13 @@ func (s *Service) AuthenticateDSN(ctx context.Context, publicKey string, expecte
 
 	s.enqueueLastUsed(meta.OrganizationID, meta.ID, now)
 	return *meta, nil
+}
+
+func (s *Service) cacheNegativeDSN(ctx context.Context, cacheKey string) {
+	if s.cache == nil {
+		return
+	}
+	_ = s.cache.Set(ctx, cacheKey, []byte(dsnNegativeCacheSentinel), cacheTTL)
 }
 
 func (s *Service) enqueueLastUsed(orgID, credID string, now time.Time) {

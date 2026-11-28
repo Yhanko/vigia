@@ -450,6 +450,55 @@ func (q *Queries) ListProjects(ctx context.Context, arg ListProjectsParams) ([]P
 	return items, nil
 }
 
+const lookupDSNKey = `-- name: LookupDSNKey :one
+SELECT
+    (r).credential_id::uuid         AS credential_id,
+    (r).organization_id::uuid       AS organization_id,
+    (r).project_id::uuid            AS project_id,
+    (r).project_public_id::bigint   AS project_public_id,
+    (r).environment_id::uuid        AS environment_id,
+    (r).allowed_origins::text[]     AS allowed_origins,
+    (r).expires_at::timestamptz     AS expires_at,
+    (r).revoked_at::timestamptz     AS revoked_at,
+    (r).allow_request_body::boolean AS allow_request_body,
+    (r).allow_user_ip::boolean      AS allow_user_ip,
+    (r).inbound_filters::jsonb      AS inbound_filters
+FROM lookup_dsn_key($1::text) AS r
+`
+
+type LookupDSNKeyRow struct {
+	CredentialID     pgtype.UUID        `json:"credential_id"`
+	OrganizationID   pgtype.UUID        `json:"organization_id"`
+	ProjectID        pgtype.UUID        `json:"project_id"`
+	ProjectPublicID  int64              `json:"project_public_id"`
+	EnvironmentID    pgtype.UUID        `json:"environment_id"`
+	AllowedOrigins   []string           `json:"allowed_origins"`
+	ExpiresAt        pgtype.Timestamptz `json:"expires_at"`
+	RevokedAt        pgtype.Timestamptz `json:"revoked_at"`
+	AllowRequestBody bool               `json:"allow_request_body"`
+	AllowUserIp      bool               `json:"allow_user_ip"`
+	InboundFilters   []byte             `json:"inbound_filters"`
+}
+
+func (q *Queries) LookupDSNKey(ctx context.Context, publicKey string) (LookupDSNKeyRow, error) {
+	row := q.db.QueryRow(ctx, lookupDSNKey, publicKey)
+	var i LookupDSNKeyRow
+	err := row.Scan(
+		&i.CredentialID,
+		&i.OrganizationID,
+		&i.ProjectID,
+		&i.ProjectPublicID,
+		&i.EnvironmentID,
+		&i.AllowedOrigins,
+		&i.ExpiresAt,
+		&i.RevokedAt,
+		&i.AllowRequestBody,
+		&i.AllowUserIp,
+		&i.InboundFilters,
+	)
+	return i, err
+}
+
 const revokeAPICredential = `-- name: RevokeAPICredential :one
 UPDATE api_credentials
 SET revoked_at = $3::timestamptz

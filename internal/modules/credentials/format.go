@@ -37,6 +37,9 @@ var (
 
 	// ErrInsufficientScope is returned when a credential kind is used outside its permitted routes.
 	ErrInsufficientScope = errors.New("credentials: insufficient scope for credential kind")
+
+	// ErrBackendUnavailable is returned when the DB cannot be queried during credential auth (CTO #38).
+	ErrBackendUnavailable = errors.New("credentials: authentication backend unavailable")
 )
 
 // ParsedKey holds the kind and lookup prefix extracted strictly by byte position.

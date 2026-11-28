@@ -68,6 +68,7 @@ type Querier interface {
 	ListProjects(ctx context.Context, arg ListProjectsParams) ([]Project, error)
 	ListTenantAuditLogsAfterCursor(ctx context.Context, arg ListTenantAuditLogsAfterCursorParams) ([]AuditLog, error)
 	ListTenantAuditLogsFirstPage(ctx context.Context, arg ListTenantAuditLogsFirstPageParams) ([]AuditLog, error)
+	LookupDSNKey(ctx context.Context, publicKey string) (LookupDSNKeyRow, error)
 	MarkUserEmailVerified(ctx context.Context, arg MarkUserEmailVerifiedParams) error
 	RecordQuotaNotification(ctx context.Context, arg RecordQuotaNotificationParams) (int32, error)
 	RemoveTeamMember(ctx context.Context, arg RemoveTeamMemberParams) (int64, error)

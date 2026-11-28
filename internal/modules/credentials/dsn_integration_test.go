@@ -231,6 +231,29 @@ func TestDSNLookupAndInvalidationIntegration(t *testing.T) {
 	if _, err := credSvc.AuthenticateDSN(ctx, dsn3.PublicKey, p1.PublicID); !errors.Is(err, credentials.ErrInvalidCredential) {
 		t.Fatalf("expected ErrInvalidCredential after org deletion, got %v", err)
 	}
+
+	// CTO #40: unknown 32-hex key is negatively cached for 60s in Redis.
+	// Call #1 hits DB -> populates negative cache. Then close pool; Call #2 with the
+	// same unknown key MUST return ErrInvalidCredential from Redis (strictly 1 DB query),
+	// whereas a DIFFERENT unknown key hits the closed pool and returns ErrBackendUnavailable (CTO #38)!
+	unknownKey1 := strings.Repeat("d", 32)
+	unknownKey2 := strings.Repeat("e", 32)
+	if _, err := credSvc.AuthenticateDSN(ctx, unknownKey1, p1.PublicID); !errors.Is(err, credentials.ErrInvalidCredential) {
+		t.Fatalf("unknownKey1 first call: expected ErrInvalidCredential, got %v", err)
+	}
+
+	// Close the underlying pool to simulate PostgreSQL outage (CTO #38 + #40 proof).
+	pool.Close()
+
+	// Same unknown key -> served from negative Redis cache (0 DB queries, ErrInvalidCredential).
+	if _, err := credSvc.AuthenticateDSN(ctx, unknownKey1, p1.PublicID); !errors.Is(err, credentials.ErrInvalidCredential) {
+		t.Fatalf("unknownKey1 second call (negative cache): expected ErrInvalidCredential, got %v", err)
+	}
+
+	// Different unknown key -> cache miss -> hits closed pool -> ErrBackendUnavailable (CTO #38).
+	if _, err := credSvc.AuthenticateDSN(ctx, unknownKey2, p1.PublicID); !errors.Is(err, credentials.ErrBackendUnavailable) {
+		t.Fatalf("unknownKey2 with closed pool: expected ErrBackendUnavailable (503), got %v", err)
+	}
 }
 
 // TestDSNRejectedOnEveryAPIV1Route dynamically walks ALL registered /api/v1/*

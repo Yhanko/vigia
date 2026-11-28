@@ -34,11 +34,15 @@ import (
 type fakeDSNAuth struct {
 	mu   sync.RWMutex
 	keys map[string]credentials.AuthenticatedDSN
+	err  error
 }
 
 func (f *fakeDSNAuth) AuthenticateDSN(_ context.Context, publicKey string, expectedProjectPublicID int64) (credentials.AuthenticatedDSN, error) {
 	f.mu.RLock()
 	defer f.mu.RUnlock()
+	if f.err != nil {
+		return credentials.AuthenticatedDSN{}, f.err
+	}
 	d, ok := f.keys[publicKey]
 	if !ok || d.ProjectPublicID != expectedProjectPublicID {
 		return credentials.AuthenticatedDSN{}, credentials.ErrInvalidCredential
@@ -629,6 +633,23 @@ func TestDedupReleasedAndQuotaRefunded_CTO37_41(t *testing.T) {
 			t.Fatalf("attempt 2 after enqueue recovery: code=%d enqueued=%d, want 200 and 1", rec2.Code, enq.len())
 		}
 	})
+}
+
+// TestDSNAuthBackendErrorReturns503_CTO38 verifies that a DB outage during DSN
+// auth returns 503 + Retry-After so Sentry SDKs retry instead of dropping (CTO #38).
+func TestDSNAuthBackendErrorReturns503_CTO38(t *testing.T) {
+	pubKey := strings.Repeat("a", 32)
+	r, _ := setupTestRouter(t, ingestion.HandlerOptions{
+		DSNAuth:  &fakeDSNAuth{err: credentials.ErrBackendUnavailable},
+		Enqueuer: &fakeEnqueuer{},
+	})
+	req := httptest.NewRequest(http.MethodPost, "/api/101/envelope/", bytes.NewReader(makeEnvelope("", "", `{"message":"db down"}`)))
+	req.Header.Set("X-Sentry-Auth", "Sentry sentry_key="+pubKey)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusServiceUnavailable || rec.Header().Get("Retry-After") == "" {
+		t.Fatalf("DB outage during DSN auth: code=%d retry=%q, want 503 with Retry-After", rec.Code, rec.Header().Get("Retry-After"))
+	}
 }
 
 // BenchmarkIngestion20KiB measures ingestion P95 latency for a 20 KiB event

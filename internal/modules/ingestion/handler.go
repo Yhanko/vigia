@@ -517,6 +517,11 @@ func (h *Handler) authenticateAndCheckCORS(w http.ResponseWriter, r *http.Reques
 	}
 	dsn, err := h.dsnAuth.AuthenticateDSN(r.Context(), publicKey, projectPublicID)
 	if err != nil {
+		if errors.Is(err, credentials.ErrBackendUnavailable) {
+			w.Header().Set("Retry-After", "30")
+			writeSentryError(w, http.StatusServiceUnavailable, "authentication backend unavailable")
+			return credentials.AuthenticatedDSN{}, false
+		}
 		// Distinguish malformed (already 401 above) vs revoked/wrong project -> 403 per ADR-017 §3.1.
 		writeSentryError(w, http.StatusForbidden, "invalid, revoked, or mismatched dsn key")
 		return credentials.AuthenticatedDSN{}, false

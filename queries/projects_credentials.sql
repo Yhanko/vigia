@@ -116,3 +116,18 @@ SET expires_at = LEAST(COALESCE(expires_at, sqlc.arg(expires_at)::timestamptz), 
 WHERE organization_id = $1
   AND id = $2
   AND revoked_at IS NULL;
+
+-- name: LookupDSNKey :one
+SELECT
+    (r).credential_id::uuid         AS credential_id,
+    (r).organization_id::uuid       AS organization_id,
+    (r).project_id::uuid            AS project_id,
+    (r).project_public_id::bigint   AS project_public_id,
+    (r).environment_id::uuid        AS environment_id,
+    (r).allowed_origins::text[]     AS allowed_origins,
+    (r).expires_at::timestamptz     AS expires_at,
+    (r).revoked_at::timestamptz     AS revoked_at,
+    (r).allow_request_body::boolean AS allow_request_body,
+    (r).allow_user_ip::boolean      AS allow_user_ip,
+    (r).inbound_filters::jsonb      AS inbound_filters
+FROM lookup_dsn_key(sqlc.arg(public_key)::text) AS r;
