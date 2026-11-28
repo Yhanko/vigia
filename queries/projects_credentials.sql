@@ -4,17 +4,17 @@
 -- name: CreateProject :one
 INSERT INTO projects (id, organization_id, public_id, name, slug, platform)
 VALUES ($1, $2, $3, btrim($4), lower(btrim($5)), lower(btrim($6)))
-RETURNING id, organization_id, public_id, name, slug, platform, status, deleted_at, created_at, updated_at;
+RETURNING id, organization_id, public_id, name, slug, platform, status, deleted_at, created_at, updated_at, allow_request_body, allow_user_ip, inbound_filters;
 
 -- name: GetProjectByID :one
-SELECT id, organization_id, public_id, name, slug, platform, status, deleted_at, created_at, updated_at
+SELECT id, organization_id, public_id, name, slug, platform, status, deleted_at, created_at, updated_at, allow_request_body, allow_user_ip, inbound_filters
 FROM projects
 WHERE organization_id = $1
   AND id = $2
   AND status <> 'deleted';
 
 -- name: ListProjects :many
-SELECT id, organization_id, public_id, name, slug, platform, status, deleted_at, created_at, updated_at
+SELECT id, organization_id, public_id, name, slug, platform, status, deleted_at, created_at, updated_at, allow_request_body, allow_user_ip, inbound_filters
 FROM projects
 WHERE organization_id = $1
   AND status = 'active'
@@ -29,7 +29,7 @@ SET name = btrim($3),
 WHERE organization_id = $1
   AND id = $2
   AND status = 'active'
-RETURNING id, organization_id, public_id, name, slug, platform, status, deleted_at, created_at, updated_at;
+RETURNING id, organization_id, public_id, name, slug, platform, status, deleted_at, created_at, updated_at, allow_request_body, allow_user_ip, inbound_filters;
 
 -- name: SoftDeleteProject :one
 UPDATE projects
@@ -39,7 +39,7 @@ SET status = 'deleting',
 WHERE organization_id = $1
   AND id = $2
   AND status = 'active'
-RETURNING id, organization_id, public_id, name, slug, platform, status, deleted_at, created_at, updated_at;
+RETURNING id, organization_id, public_id, name, slug, platform, status, deleted_at, created_at, updated_at, allow_request_body, allow_user_ip, inbound_filters;
 
 -- name: CreateEnvironment :one
 INSERT INTO environments (id, organization_id, project_id, name, is_protected)

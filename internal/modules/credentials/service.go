@@ -138,6 +138,28 @@ type cachedCredential struct {
 	ExpiresAt      *time.Time `json:"expires_at,omitempty"`
 }
 
+// InboundFilters holds per-project ingestion filter toggles (ADR-017 §3.7).
+type InboundFilters struct {
+	BrowserExtensions bool `json:"browser_extensions"`
+	Localhost         bool `json:"localhost"`
+	Crawlers          bool `json:"crawlers"`
+}
+
+// AuthenticatedDSN holds the verified tenant, project, and privacy context
+// resolved from a Sentry-compatible public DSN key (ADR-005, ADR-017 §3.2).
+type AuthenticatedDSN struct {
+	ID               string         `json:"id"`
+	OrganizationID   string         `json:"org_id"`
+	ProjectID        string         `json:"proj_id"`
+	ProjectPublicID  int64          `json:"proj_public_id"`
+	EnvironmentID    string         `json:"env_id,omitempty"`
+	AllowedOrigins   []string       `json:"allowed_origins,omitempty"`
+	AllowRequestBody bool           `json:"allow_request_body"`
+	AllowUserIP      bool           `json:"allow_user_ip"`
+	InboundFilters   InboundFilters `json:"inbound_filters"`
+	ExpiresAt        *time.Time     `json:"expires_at,omitempty"`
+}
+
 type lastUsedEntry struct {
 	orgID  string
 	credID string
@@ -683,6 +705,99 @@ func (s *Service) AuthenticateSecret(ctx context.Context, rawKey, clientIP strin
 		Kind:           meta.Kind,
 		Scopes:         meta.Scopes,
 	}, nil
+}
+
+// AuthenticateDSN resolves a 32-hex public DSN key via Redis cache (60s TTL) or
+// SECURITY DEFINER lookup_dsn_key, verifying active status, expiry, and exact
+// project public_id match (ADR-005, ADR-017 §3.2, TASKS 2.1).
+func (s *Service) AuthenticateDSN(ctx context.Context, publicKey string, expectedProjectPublicID int64) (AuthenticatedDSN, error) {
+	if len(publicKey) != DSNKeyLength || !isLowerHex(publicKey) || expectedProjectPublicID <= 0 {
+		return AuthenticatedDSN{}, ErrInvalidCredential
+	}
+
+	now := s.clk.Now().UTC()
+	cacheKey := CacheKey(KindDSN, publicKey)
+
+	var meta *AuthenticatedDSN
+	if s.cache != nil {
+		if raw, cErr := s.cache.Get(ctx, cacheKey); cErr == nil && len(raw) > 0 {
+			var decoded AuthenticatedDSN
+			if json.Unmarshal(raw, &decoded) == nil {
+				meta = &decoded
+			}
+		}
+	}
+
+	if meta == nil {
+		var (
+			credID, orgID, projID, envID pgtype.UUID
+			projPublicID                 int64
+			allowedOrigins               []string
+			expiresAt, revokedAt         pgtype.Timestamptz
+			allowReqBody, allowUserIP    bool
+			filtersJSON                  []byte
+		)
+		row := s.pool.QueryRow(ctx,
+			`SELECT credential_id, organization_id, project_id, project_public_id,
+			        environment_id, allowed_origins, expires_at, revoked_at,
+			        allow_request_body, allow_user_ip, inbound_filters
+			 FROM lookup_dsn_key($1)`,
+			publicKey,
+		)
+		if scanErr := row.Scan(
+			&credID, &orgID, &projID, &projPublicID,
+			&envID, &allowedOrigins, &expiresAt, &revokedAt,
+			&allowReqBody, &allowUserIP, &filtersJSON,
+		); scanErr != nil {
+			return AuthenticatedDSN{}, ErrInvalidCredential
+		}
+		if revokedAt.Valid {
+			return AuthenticatedDSN{}, ErrInvalidCredential
+		}
+		var expPtr *time.Time
+		if expiresAt.Valid {
+			t := expiresAt.Time.UTC()
+			if !t.After(now) {
+				return AuthenticatedDSN{}, ErrInvalidCredential
+			}
+			expPtr = &t
+		}
+		envStr := ""
+		if envID.Valid {
+			envStr = envID.String()
+		}
+		filters := InboundFilters{BrowserExtensions: true, Crawlers: true}
+		if len(filtersJSON) > 0 {
+			_ = json.Unmarshal(filtersJSON, &filters)
+		}
+		meta = &AuthenticatedDSN{
+			ID:               credID.String(),
+			OrganizationID:   orgID.String(),
+			ProjectID:        projID.String(),
+			ProjectPublicID:  projPublicID,
+			EnvironmentID:    envStr,
+			AllowedOrigins:   allowedOrigins,
+			AllowRequestBody: allowReqBody,
+			AllowUserIP:      allowUserIP,
+			InboundFilters:   filters,
+			ExpiresAt:        expPtr,
+		}
+		if s.cache != nil {
+			if encoded, mErr := json.Marshal(meta); mErr == nil {
+				_ = s.cache.Set(ctx, cacheKey, encoded, cacheTTL)
+			}
+		}
+	}
+
+	if meta.ExpiresAt != nil && !meta.ExpiresAt.After(now) {
+		return AuthenticatedDSN{}, ErrInvalidCredential
+	}
+	if meta.ProjectPublicID != expectedProjectPublicID {
+		return AuthenticatedDSN{}, ErrInvalidCredential
+	}
+
+	s.enqueueLastUsed(meta.OrganizationID, meta.ID, now)
+	return *meta, nil
 }
 
 func (s *Service) enqueueLastUsed(orgID, credID string, now time.Time) {

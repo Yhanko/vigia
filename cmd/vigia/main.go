@@ -295,7 +295,11 @@ func runAPI() error {
 				credCache = credentials.NewRedisCache(rdb)
 			}
 			ingestHost := "ingest.vigia.local"
-			if u, uErr := url.Parse(cfg.AppURL); uErr == nil && u.Host != "" {
+			rawIngestURL := cfg.IngestPublicURL
+			if rawIngestURL == "" {
+				rawIngestURL = cfg.AppURL
+			}
+			if u, uErr := url.Parse(rawIngestURL); uErr == nil && u.Host != "" {
 				ingestHost = u.Host
 			}
 			credSvc, err = credentials.NewService(credentials.ServiceConfig{

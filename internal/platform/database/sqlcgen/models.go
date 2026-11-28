@@ -157,16 +157,19 @@ type Plan struct {
 }
 
 type Project struct {
-	ID             pgtype.UUID        `json:"id"`
-	OrganizationID pgtype.UUID        `json:"organization_id"`
-	PublicID       int64              `json:"public_id"`
-	Name           string             `json:"name"`
-	Slug           string             `json:"slug"`
-	Platform       string             `json:"platform"`
-	Status         string             `json:"status"`
-	DeletedAt      pgtype.Timestamptz `json:"deleted_at"`
-	CreatedAt      pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
+	ID               pgtype.UUID        `json:"id"`
+	OrganizationID   pgtype.UUID        `json:"organization_id"`
+	PublicID         int64              `json:"public_id"`
+	Name             string             `json:"name"`
+	Slug             string             `json:"slug"`
+	Platform         string             `json:"platform"`
+	Status           string             `json:"status"`
+	DeletedAt        pgtype.Timestamptz `json:"deleted_at"`
+	CreatedAt        pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt        pgtype.Timestamptz `json:"updated_at"`
+	AllowRequestBody bool               `json:"allow_request_body"`
+	AllowUserIp      bool               `json:"allow_user_ip"`
+	InboundFilters   []byte             `json:"inbound_filters"`
 }
 
 type QuotaNotification struct {
