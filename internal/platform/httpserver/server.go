@@ -45,6 +45,9 @@ type Options struct {
 	// APIServer provides the composed OpenAPI ServerInterface mounted under /api/v1
 	// via api.HandlerWithOptions (CTO #6, #18). Domain handlers live in internal/modules/*.
 	APIServer api.ServerInterface
+	// MountIngestion optionally mounts Sentry-compatible ingestion routes outside
+	// /api/v1 with their own CORS, body limits, auth, and rate limiting (ADR-017 §3.1).
+	MountIngestion func(r chi.Router)
 }
 
 // AdminOptions configures the internal operational listener (ADMIN_PORT),
@@ -68,8 +71,6 @@ func NewHandler(opts Options) http.Handler {
 	r.Use(SecurityHeadersMiddleware(opts.HSTS))
 	r.Use(RecovererMiddleware(opts.Logger))
 	r.Use(RequestLoggerMiddleware(opts.Logger))
-	r.Use(CORSMiddleware(opts.CORSOrigins))
-	r.Use(MaxBytesMiddleware(opts.MaxBodyBytes))
 
 	r.NotFound(func(w http.ResponseWriter, req *http.Request) {
 		WriteError(w, req, http.StatusNotFound, "RESOURCE_NOT_FOUND", "The requested resource was not found.")
@@ -78,9 +79,17 @@ func NewHandler(opts Options) http.Handler {
 		WriteError(w, req, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "The HTTP method is not allowed for this endpoint.")
 	})
 
+	// Sentry-compatible ingestion routes outside /api/v1 (ADR-017 §3.1).
+	// They manage their own CORS, decompression/size limits, DSN auth, and rate limits.
+	if opts.MountIngestion != nil {
+		opts.MountIngestion(r)
+	}
+
 	// Versioned product API (README §9), mounted via oapi-codegen ServerInterface (CTO #18).
 	if opts.APIServer != nil {
 		r.Route("/api/v1", func(v1 chi.Router) {
+			v1.Use(CORSMiddleware(opts.CORSOrigins))
+			v1.Use(MaxBytesMiddleware(opts.MaxBodyBytes))
 			if opts.APIRateLimit != nil {
 				v1.Use(opts.APIRateLimit)
 			}

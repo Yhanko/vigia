@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 	"github.com/riverqueue/river"
@@ -23,6 +24,7 @@ import (
 	"github.com/Yhanko/vigia/internal/modules/identity"
 	"github.com/Yhanko/vigia/internal/modules/identity/password"
 	"github.com/Yhanko/vigia/internal/modules/identity/session"
+	"github.com/Yhanko/vigia/internal/modules/ingestion"
 	"github.com/Yhanko/vigia/internal/modules/organizations"
 	"github.com/Yhanko/vigia/internal/modules/projects"
 	"github.com/Yhanko/vigia/internal/modules/quotas"
@@ -211,6 +213,7 @@ func runAPI() error {
 		projHandler      *projects.Handler
 		credHandler      *credentials.Handler
 		quotaHandler     *quotas.Handler
+		mountIngestion   func(r chi.Router)
 		apiAuthMW        func(http.Handler) http.Handler
 		apiIdempotencyMW func(http.Handler) http.Handler
 		credSvc          *credentials.Service
@@ -403,6 +406,32 @@ func runAPI() error {
 		if err != nil {
 			return err
 		}
+
+		if credSvc != nil {
+			riverInsertClient, err := jobs.NewClient(jobs.ClientOptions{
+				Pool:   pool,
+				Role:   jobs.RoleInsertOnly,
+				Logger: logger,
+			})
+			if err != nil {
+				return err
+			}
+			ingestHandler, err := ingestion.NewHandler(ingestion.HandlerOptions{
+				DSNAuth:              credSvc,
+				Quotas:               quotaSvc,
+				Limiter:              limiter,
+				Redis:                rdb,
+				Enqueuer:             ingestion.RiverEnqueuer{Client: riverInsertClient},
+				Backpressure:         jobs.NewBackpressureChecker(pool, jobs.QueueIngest),
+				AdvertiseUnsupported: cfg.IngestAdvertiseUnsupported,
+				Clock:                clk,
+				Logger:               logger,
+			})
+			if err != nil {
+				return err
+			}
+			mountIngestion = ingestHandler.Mount
+		}
 	} else {
 		logger.Warn("identity endpoints disabled (requires DATABASE_URL, REDIS_ADDR, and SESSION_SECRET_FILE)")
 	}
@@ -430,6 +459,7 @@ func runAPI() error {
 		APIAuth:        apiAuthMW,
 		APIIdempotency: apiIdempotencyMW,
 		APIServer:      composedAPI,
+		MountIngestion: mountIngestion,
 	})
 	adminSrv := httpserver.NewAdmin(httpserver.AdminOptions{
 		Port:            cfg.AdminPort,
