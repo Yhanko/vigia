@@ -7,6 +7,7 @@ import (
 	"compress/zlib"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -48,11 +49,15 @@ func (f *fakeDSNAuth) AuthenticateDSN(_ context.Context, publicKey string, expec
 type fakeEnqueuer struct {
 	mu   sync.Mutex
 	jobs []ingestion.ProcessErrorEventArgs
+	err  error
 }
 
 func (f *fakeEnqueuer) EnqueueErrorEvent(_ context.Context, args ingestion.ProcessErrorEventArgs) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.err != nil {
+		return f.err
+	}
 	f.jobs = append(f.jobs, args)
 	return nil
 }
@@ -63,9 +68,16 @@ func (f *fakeEnqueuer) last() ingestion.ProcessErrorEventArgs {
 	return f.jobs[len(f.jobs)-1]
 }
 
+func (f *fakeEnqueuer) len() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.jobs)
+}
+
 type fakeQuota struct {
 	decision quotas.QuotaDecision
 	err      error
+	refunds  int64
 }
 
 func (f *fakeQuota) GetPlan(_ context.Context, _ database.TenantID) (quotas.Plan, error) {
@@ -77,6 +89,36 @@ func (f *fakeQuota) ConsumeEvents(_ context.Context, _ database.TenantID, _ int6
 		return quotas.QuotaDecision{}, f.err
 	}
 	return f.decision, nil
+}
+
+func (f *fakeQuota) RefundEvents(_ context.Context, _ database.TenantID, count int64) {
+	f.refunds += count
+}
+
+type memDedupStore struct {
+	mu   sync.Mutex
+	keys map[string]struct{}
+}
+
+func newMemDedupStore() *memDedupStore {
+	return &memDedupStore{keys: make(map[string]struct{})}
+}
+
+func (m *memDedupStore) SetNX(_ context.Context, key string, _ time.Duration) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, exists := m.keys[key]; exists {
+		return false, nil
+	}
+	m.keys[key] = struct{}{}
+	return true, nil
+}
+
+func (m *memDedupStore) Del(_ context.Context, key string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.keys, key)
+	return nil
 }
 
 type fakeBackpressure struct {
@@ -505,6 +547,88 @@ func TestRateLimitQuotaAndBackpressureHeaders(t *testing.T) {
 	if rec.Code != http.StatusTooManyRequests || rec.Header().Get("X-Sentry-Rate-Limits") != "45:error;default:key:rate_limited" {
 		t.Fatalf("rate limited: code=%d hdr=%q", rec.Code, rec.Header().Get("X-Sentry-Rate-Limits"))
 	}
+}
+
+// TestDedupReleasedAndQuotaRefunded_CTO37_41 verifies:
+//   - CTO #37: quota rejection (429) or enqueue failure (503) releases the dedup key
+//     so an SDK retry with the exact same event_id is accepted and enqueued.
+//   - CTO #41: enqueue failure refunds the consumed quota unit.
+func TestDedupReleasedAndQuotaRefunded_CTO37_41(t *testing.T) {
+	pubKey := strings.Repeat("a", 32)
+	auth := &fakeDSNAuth{keys: map[string]credentials.AuthenticatedDSN{
+		pubKey: {ID: uuid.NewString(), OrganizationID: uuid.NewString(), ProjectID: uuid.NewString(), ProjectPublicID: 101},
+	}}
+
+	t.Run("quota_exceeded_releases_dedup_key", func(t *testing.T) {
+		dedup := newMemDedupStore()
+		enq := &fakeEnqueuer{}
+		q := &fakeQuota{decision: quotas.QuotaDecision{Allowed: false, Window: "day", RetryAfter: 60 * time.Second}}
+		r, _ := setupTestRouter(t, ingestion.HandlerOptions{
+			DSNAuth:  auth,
+			Quotas:   q,
+			Dedup:    dedup,
+			Enqueuer: enq,
+		})
+
+		evID := strings.Repeat("b", 32)
+		env := makeEnvelope(evID, "", `{"event_id":"`+evID+`","message":"retry after quota"}`)
+
+		// Attempt 1: quota exceeded -> 429, nothing enqueued.
+		req1 := httptest.NewRequest(http.MethodPost, "/api/101/envelope/", bytes.NewReader(env))
+		req1.Header.Set("X-Sentry-Auth", "Sentry sentry_key="+pubKey)
+		rec1 := httptest.NewRecorder()
+		r.ServeHTTP(rec1, req1)
+		if rec1.Code != http.StatusTooManyRequests || enq.len() != 0 {
+			t.Fatalf("attempt 1: code=%d enqueued=%d", rec1.Code, enq.len())
+		}
+
+		// Quota raised -> SDK retries the exact same event_id -> MUST be accepted and enqueued.
+		q.decision = quotas.QuotaDecision{Allowed: true}
+		req2 := httptest.NewRequest(http.MethodPost, "/api/101/envelope/", bytes.NewReader(env))
+		req2.Header.Set("X-Sentry-Auth", "Sentry sentry_key="+pubKey)
+		rec2 := httptest.NewRecorder()
+		r.ServeHTTP(rec2, req2)
+		if rec2.Code != http.StatusOK || enq.len() != 1 {
+			t.Fatalf("attempt 2 after quota raised: code=%d enqueued=%d, want 200 and 1", rec2.Code, enq.len())
+		}
+	})
+
+	t.Run("enqueue_failure_releases_dedup_and_refunds_quota", func(t *testing.T) {
+		dedup := newMemDedupStore()
+		enq := &fakeEnqueuer{err: errors.New("river insert failed")}
+		q := &fakeQuota{decision: quotas.QuotaDecision{Allowed: true}}
+		r, _ := setupTestRouter(t, ingestion.HandlerOptions{
+			DSNAuth:  auth,
+			Quotas:   q,
+			Dedup:    dedup,
+			Enqueuer: enq,
+		})
+
+		evID := strings.Repeat("c", 32)
+		env := makeEnvelope(evID, "", `{"event_id":"`+evID+`","message":"retry after enqueue fail"}`)
+
+		// Attempt 1: enqueue fails -> 503, dedup released, quota refunded.
+		req1 := httptest.NewRequest(http.MethodPost, "/api/101/envelope/", bytes.NewReader(env))
+		req1.Header.Set("X-Sentry-Auth", "Sentry sentry_key="+pubKey)
+		rec1 := httptest.NewRecorder()
+		r.ServeHTTP(rec1, req1)
+		if rec1.Code != http.StatusServiceUnavailable {
+			t.Fatalf("attempt 1: code=%d, want 503", rec1.Code)
+		}
+		if q.refunds != 1 {
+			t.Fatalf("expected 1 quota refund on enqueue failure, got %d", q.refunds)
+		}
+
+		// Enqueue recovers -> SDK retries the exact same event_id -> MUST be accepted and enqueued.
+		enq.err = nil
+		req2 := httptest.NewRequest(http.MethodPost, "/api/101/envelope/", bytes.NewReader(env))
+		req2.Header.Set("X-Sentry-Auth", "Sentry sentry_key="+pubKey)
+		rec2 := httptest.NewRecorder()
+		r.ServeHTTP(rec2, req2)
+		if rec2.Code != http.StatusOK || enq.len() != 1 {
+			t.Fatalf("attempt 2 after enqueue recovery: code=%d enqueued=%d, want 200 and 1", rec2.Code, enq.len())
+		}
+	})
 }
 
 // BenchmarkIngestion20KiB measures ingestion P95 latency for a 20 KiB event

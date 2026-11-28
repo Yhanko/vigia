@@ -41,10 +41,29 @@ type DSNAuthenticator interface {
 	AuthenticateDSN(ctx context.Context, publicKey string, expectedProjectPublicID int64) (credentials.AuthenticatedDSN, error)
 }
 
-// QuotaConsumer checks and increments event quotas for an organization.
+// QuotaConsumer checks, increments, and refunds event quotas for an organization.
 type QuotaConsumer interface {
 	GetPlan(ctx context.Context, tenantID database.TenantID) (quotas.Plan, error)
 	ConsumeEvents(ctx context.Context, tenantID database.TenantID, count int64) (quotas.QuotaDecision, error)
+	RefundEvents(ctx context.Context, tenantID database.TenantID, count int64)
+}
+
+// DedupStore abstracts the Redis SET NX / DEL operations for fast event deduplication.
+type DedupStore interface {
+	SetNX(ctx context.Context, key string, ttl time.Duration) (bool, error)
+	Del(ctx context.Context, key string) error
+}
+
+type redisDedupStore struct {
+	rdb *redis.Client
+}
+
+func (s redisDedupStore) SetNX(ctx context.Context, key string, ttl time.Duration) (bool, error) {
+	return s.rdb.SetNX(ctx, key, "1", ttl).Result()
+}
+
+func (s redisDedupStore) Del(ctx context.Context, key string) error {
+	return s.rdb.Del(ctx, key).Err()
 }
 
 // EventEnqueuer persists a ProcessErrorEventArgs job into River.
@@ -103,6 +122,7 @@ type HandlerOptions struct {
 	Quotas               QuotaConsumer
 	Limiter              ratelimit.Limiter
 	Redis                *redis.Client
+	Dedup                DedupStore
 	Enqueuer             EventEnqueuer
 	Backpressure         BackpressureChecker
 	AdvertiseUnsupported bool
@@ -116,7 +136,7 @@ type Handler struct {
 	dsnAuth              DSNAuthenticator
 	quotas               QuotaConsumer
 	limiter              ratelimit.Limiter
-	rdb                  *redis.Client
+	dedup                DedupStore
 	enqueuer             EventEnqueuer
 	backpressure         BackpressureChecker
 	advertiseUnsupported bool
@@ -145,11 +165,15 @@ func NewHandler(opts HandlerOptions) (*Handler, error) {
 	if metrics == nil {
 		metrics = &Metrics{}
 	}
+	dedup := opts.Dedup
+	if dedup == nil && opts.Redis != nil {
+		dedup = redisDedupStore{rdb: opts.Redis}
+	}
 	return &Handler{
 		dsnAuth:              opts.DSNAuth,
 		quotas:               opts.Quotas,
 		limiter:              opts.Limiter,
-		rdb:                  opts.Redis,
+		dedup:                dedup,
 		enqueuer:             opts.Enqueuer,
 		backpressure:         opts.Backpressure,
 		advertiseUnsupported: opts.AdvertiseUnsupported,
@@ -408,9 +432,12 @@ func (h *Handler) processEvents(
 		lastEventID = norm.EventID
 
 		// 3. Fast Redis deduplication (ADR-003 §3.4, ADR-009 §3.2 — duplicates do NOT count toward quota).
-		if h.rdb != nil {
-			dedupKey := "dedup:" + dsn.ProjectID + ":" + norm.EventID
-			set, dErr := h.rdb.SetNX(ctx, dedupKey, "1", dedupTTL).Result()
+		// If any subsequent step rejects or fails to enqueue, the dedup key MUST be deleted
+		// so SDK retries are not silently dropped (CTO #37).
+		var dedupKey string
+		if h.dedup != nil {
+			dedupKey = "dedup:" + dsn.ProjectID + ":" + norm.EventID
+			set, dErr := h.dedup.SetNX(ctx, dedupKey, dedupTTL)
 			if dErr != nil {
 				w.Header().Set("Retry-After", "30")
 				writeSentryError(w, http.StatusServiceUnavailable, "deduplication backend unavailable")
@@ -421,11 +448,19 @@ func (h *Handler) processEvents(
 				continue
 			}
 		}
+		releaseDedup := func() {
+			if h.dedup != nil && dedupKey != "" {
+				if err := h.dedup.Del(ctx, dedupKey); err != nil {
+					h.logger.Warn("failed to release dedup key after non-accepted event", "error", err)
+				}
+			}
+		}
 
 		// 4. Atomic quota check + increment (ADR-009 §3.2-3.3 — fail-closed 503 if Redis down).
 		if h.quotas != nil {
 			dec, qErr := h.quotas.ConsumeEvents(ctx, tid, 1)
 			if qErr != nil {
+				releaseDedup()
 				if errors.Is(qErr, quotas.ErrServiceUnavailable) {
 					w.Header().Set("Retry-After", "30")
 					writeSentryError(w, http.StatusServiceUnavailable, "quota service unavailable")
@@ -436,6 +471,7 @@ func (h *Handler) processEvents(
 				return
 			}
 			if !dec.Allowed {
+				releaseDedup()
 				sec := maxInt(1, int(dec.RetryAfter.Seconds()))
 				writeSentryRateLimit(w, sec, "error;default", "organization", "quota_exceeded")
 				return
@@ -453,6 +489,10 @@ func (h *Handler) processEvents(
 			Payload:        norm.Payload,
 		}
 		if err := h.enqueuer.EnqueueErrorEvent(ctx, jobArgs); err != nil {
+			releaseDedup()
+			if h.quotas != nil {
+				h.quotas.RefundEvents(ctx, tid, 1)
+			}
 			h.logger.Error("failed to enqueue error event", "org_id", dsn.OrganizationID, "project_id", dsn.ProjectID, "error", err)
 			w.Header().Set("Retry-After", "5")
 			writeSentryError(w, http.StatusServiceUnavailable, "queue temporarily unavailable")

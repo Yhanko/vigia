@@ -64,6 +64,23 @@ redis.call('SADD', KEYS[3], ARGV[6])
 return {1, 0, newDay, newMonth}
 `)
 
+// refundEventsScript best-effort decrements daily and monthly counters without
+// ever dropping below 0 (CTO #41).
+var refundEventsScript = redis.NewScript(`
+local count = tonumber(ARGV[1])
+for i = 1, 2 do
+  local cur = tonumber(redis.call('GET', KEYS[i]) or '0')
+  if cur > 0 then
+    local nextVal = cur - count
+    if nextVal < 0 then
+      nextVal = 0
+    end
+    redis.call('SET', KEYS[i], nextVal, 'KEEPTTL')
+  end
+end
+return 1
+`)
+
 // Mailer sends threshold warning emails to organization owners and admins.
 type Mailer interface {
 	Send(ctx context.Context, to, subject, textBody string) error
@@ -317,6 +334,21 @@ func (s *Service) ConsumeEvents(ctx context.Context, tenantID database.TenantID,
 	}
 
 	return dec, nil
+}
+
+// RefundEvents best-effort returns consumed event quota units when enqueue fails
+// after ConsumeEvents succeeded (CTO #41).
+func (s *Service) RefundEvents(ctx context.Context, tenantID database.TenantID, count int64) {
+	if count <= 0 || s.rdb == nil {
+		return
+	}
+	now := s.clk.Now().UTC()
+	orgID := tenantID.String()
+	dayKey := eventDayKey(orgID, now)
+	monthKey := eventMonthKey(orgID, now)
+	if err := refundEventsScript.Run(ctx, s.rdb, []string{dayKey, monthKey}, count).Err(); err != nil {
+		s.logger.Warn("failed to refund event quota (best effort)", "org_id", orgID, "error", err)
+	}
 }
 
 // CheckProjectLimitTx enforces the plan's hard max_projects limit inside an
