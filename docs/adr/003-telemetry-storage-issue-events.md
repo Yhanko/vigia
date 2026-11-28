@@ -3,7 +3,7 @@
 - **Estado:** Aceite
 - **Data:** 2026-11-27
 - **Responsável:** CTO (Claude)
-- **Revisão CTO:** Aprovado (2026-11-27)
+- **Revisão CTO:** Aprovado (2026-11-27); **emendado (2026-11-28)** — sem columnstore, ver §7
 - **Fase bloqueada:** Antes da Fase 2
 - **Referências:** README §5.1, §5.3, §8.2, §8.3, §8.5, §13, §17.2; TASKS 2.3; ADR-002, ADR-008, ADR-009, ADR-014; `docs/decisions/perguntas-ceo.md` (perguntas 3, 4 e 5)
 
@@ -67,7 +67,8 @@ Sem esta decisão não se pode escrever a migration de `issues`/`issue_events` (
 - Chave primária `(id, received_at)`: os índices únicos de uma hypertable têm de incluir a coluna de partição.
 - Índices: `(organization_id, issue_id, received_at DESC)` (eventos de um issue) e `(organization_id, project_id, received_at DESC)`.
 - **RLS fail-closed** igual às restantes tabelas de tenant (ADR-008): `ENABLE` + `FORCE` + política por `organization_id`. O teste-guarda do catálogo tem de a apanhar.
-- **Compressão** dos chunks com mais de **2 dias**: `segmentby = 'organization_id, project_id'`, `orderby = 'received_at DESC'`.
+- ~~Compressão dos chunks com mais de 2 dias~~ **Retirado pela emenda de 2026-11-28 (§7):** o TimescaleDB 2.32.1 recusa columnstore em tabelas com RLS. `payload` e `tags` usam compressão TOAST **`lz4`** (`ALTER COLUMN ... SET COMPRESSION lz4`).
+- **Schema interno fechado:** `REVOKE USAGE ON SCHEMA _timescaledb_internal FROM PUBLIC` na migration de `issue_events`. Sem isto, `vigia_app` lê os chunks directamente e **contorna o RLS** (verificado em 2026-11-28, §7).
 - Sem FK de `issue_events` para `issues` (FKs de hypertables para tabelas normais funcionam, mas tornam a remoção de chunks e o `DELETE` de issues caros); a integridade é garantida pelo `worker` na mesma transacção, e a eliminação de um issue apaga os seus eventos explicitamente.
 
 ### 3.4 Deduplicação por `event_id`
@@ -94,18 +95,19 @@ O módulo `issues` acede aos eventos só através de uma interface própria (por
 ### Positivas
 - Zero componentes novos de infraestrutura para o MVP; o backup e restore já testado na Fase 1 cobre os eventos.
 - Isolamento entre clientes reforçado pela base de dados (RLS), também nos eventos de erro.
-- Retenção barata (`drop_chunks`) e disco previsível: ~35–40 GB com 30 dias e 5 M eventos/mês, com compressão.
+- Retenção barata (`drop_chunks`). Disco sem columnstore: estimativa a confirmar na tarefa 2.3 (§6.3), na ordem de 20–60 GB com 30 dias e 5 M eventos/mês com TOAST `lz4`, dentro do VPS de 160–250 GB.
 
 ### Negativas / Trade-offs aceites
 - A ingestão partilha recursos com a API de produto; o `worker` tem de escrever em lote e com concorrência limitada.
-- Dependência parcial de funcionalidades TSL (só optimização).
+- ~~Dependência parcial de funcionalidades TSL~~ Com a emenda, `issue_events` não usa nenhuma funcionalidade TSL.
+- Mais disco do que com columnstore (sem compressão em colunas).
 - Pesquisa de texto livre nos eventos limitada a filtros indexados e intervalos de tempo; pesquisa completa fica para depois do MVP.
 
 ## 5. Riscos e mitigação
 
 | Risco | Probabilidade / Impacto | Mitigação |
 |---|---|---|
-| RLS não aplicado em chunks comprimidos ou em queries directas aos chunks | Baixa / Crítico | Teste de integração obrigatório (§6); `vigia_app` sem `USAGE` no schema `_timescaledb_internal`; plano de recurso: opção C |
+| RLS contornado por queries directas aos chunks | **Certa se não se fizer nada** / Crítico | `REVOKE USAGE ON SCHEMA _timescaledb_internal FROM PUBLIC` na migration; teste-guarda do catálogo: `has_schema_privilege('vigia_app', '_timescaledb_internal', 'USAGE') = false`; repetir após `ALTER EXTENSION timescaledb UPDATE` |
 | Rajada de ingestão degrada a API | Média / Alto | Ingestão assíncrona (ADR-004), escrita em lote, limites por organização (ADR-009), `statement_timeout`, monitorização do lag |
 | Disco do VPS esgota antes da retenção | Média / Alto | Quotas (ADR-009), alerta a 70 % de disco, compressão a 2 dias, tamanho máximo por evento (ADR-017) |
 | Mudança de termos da TSL | Baixa / Médio | Nenhuma correcção depende da TSL (§3.6); plano de recurso: opção C |
@@ -115,9 +117,31 @@ O módulo `issues` acede aos eventos só através de uma interface própria (por
 
 Obrigatório na tarefa 2.3, antes de fechar a migration:
 
-1. **RLS:** teste de integração como `vigia_app` que insere eventos de duas organizações, comprime os chunks (`compress_chunk`) e prova que `WithTenantTx(orgA)` nunca vê nem altera eventos de B, tanto em chunks comprimidos como não comprimidos; e que `vigia_app` não consegue ler os chunks directamente em `_timescaledb_internal`.
+1. **RLS** *(reescrito pela emenda, §7)***:** teste de integração como `vigia_app` que insere eventos de duas organizações em vários chunks diários e prova que `WithTenantTx(orgA)` nunca vê, altera nem apaga eventos de B; que sem tenant definido vê 0 linhas; que `INSERT` com `organization_id` de outra organização falha; e que `vigia_app` recebe `permission denied` ao ler um chunk directamente em `_timescaledb_internal`.
 2. **Carga:** inserção em lote de 250 eventos/s durante 5 minutos (payload sintético de 8 KiB) no perfil de recursos do `compose.yaml`, com P95 da API de login abaixo de 300 ms durante a carga.
-3. **Disco:** medir o rácio de compressão com eventos reais das fixtures dos SDKs e actualizar a estimativa de disco do go-live.
+3. **Disco:** medir `pg_total_relation_size('issue_events')` por evento (TOAST `lz4`) com as fixtures dos SDKs e actualizar a estimativa de disco do go-live.
 4. **Retenção:** `drop_chunks` remove só os chunks fora da janela e `issue_event_ids` é limpo pelo `scheduler`.
 
 **Sinais para rever esta decisão (passar o detalhe dos eventos para ClickHouse):** mais de 50 M eventos/mês; P95 da lista de eventos de um issue acima de 1 s; disco da BD acima de 70 % com a retenção a funcionar; ou a ingestão a afectar o SLO da API de produto mesmo com o `worker` separado.
+
+## 7. Emenda de 2026-11-28 — RLS e columnstore são incompatíveis
+
+### 7.1 O que se verificou
+Na porta do §6.1, o Gemini verificou e o CTO confirmou num contentor limpo `timescale/timescaledb:2.32.1-pg18`:
+
+- RLS activado e depois `timescaledb.compress`: `ERROR: columnstore cannot be used on table with row security (SQLSTATE 0A000)`. Na ordem inversa: `operation not supported on hypertables that have columnstore enabled`. **Não há forma de ter as duas coisas na mesma hypertable.**
+- Numa hypertable **sem** columnstore, o RLS funciona: com `ENABLE` + `FORCE`, um papel `NOSUPERUSER NOBYPASSRLS` vê só as linhas do seu tenant, vê 0 linhas sem tenant, e um `INSERT` de outro tenant falha.
+- **Achado novo:** por omissão, `PUBLIC` tem `USAGE` em `_timescaledb_internal` e os chunks herdam os `GRANT` da hypertable. Um `SELECT` directo a `_timescaledb_internal._hyper_1_1_chunk` **sem tenant definido devolveu linhas**: o RLS da hypertable não se aplica aos chunks. Depois de `REVOKE USAGE ON SCHEMA _timescaledb_internal FROM PUBLIC`, o mesmo `SELECT` dá `permission denied`, e o `INSERT` pela hypertable (incluindo a criação de chunks novos), o `SELECT` e o `DELETE` continuam a funcionar.
+
+### 7.2 Decisão
+- `issue_events` continua **hypertable TimescaleDB** com chunks diários, `drop_chunks` (Apache 2.0) e **RLS `ENABLE` + `FORCE`**, **sem columnstore**.
+- `payload` e `tags` com `SET COMPRESSION lz4` (TOAST nativo do PostgreSQL).
+- `REVOKE USAGE ON SCHEMA _timescaledb_internal FROM PUBLIC` na mesma migration, com teste-guarda no catálogo.
+- O isolamento entre clientes (ADR-008) não cede para poupar disco. O isolamento só no código, por funções `SECURITY DEFINER` sobre uma tabela sem RLS, foi **rejeitado**.
+- O particionamento nativo (opção C) não traz vantagem enquanto não houver compressão em nenhum dos dois: obrigaria a escrever a criação de partições à mão. Continua a ser o plano de recurso se a TSL ou o TimescaleDB se tornarem um problema.
+
+### 7.3 Consequências
+- `issue_events` deixa de depender da TSL.
+- Mais disco. O alerta a 70 % de disco e as quotas (ADR-009) passam a ser a protecção principal. Se a medição do §6.3 der mais de **80 GB** a 30 dias com 5 M eventos/mês, o CTO revê (retenção mais curta, `payload` mais pequeno ou o caminho ClickHouse do §3.7).
+- **Fase 3 (métricas, TASKS §3):** a mesma limitação vale para a hypertable `metrics`, a compressão e os continuous aggregates. O ADR de métricas tem de partir deste facto, e não do desenho original.
+

@@ -375,10 +375,10 @@
   - [x] Scrubbing no servidor **antes** de enfileirar, independentemente do `send_default_pii` do SDK
   - [x] Tenant/projecto/ambiente derivados **só** da chave DSN validada
 
-### 2.3 Processamento: issues, agrupamento e privacidade *(BLOQUEADO na porta ADR-003 §6.1 — aguarda decisão do CTO)*
+### 2.3 Processamento: issues, agrupamento e privacidade *(desbloqueado em 2026-11-28: ADR-003 emendado §7 — hypertable sem columnstore; critérios no pendente CTO #43)*
 > **Bloqueio técnico verificado (2026-11-28):** No `timescale/timescaledb:2.32.1-pg18`, combinar `ENABLE ROW LEVEL SECURITY` com `timescaledb.compress` (columnstore) falha com `SQLSTATE 0A000` em ambas as ordens (`operation not supported on hypertables that have columnstore enabled` / `columnstore cannot be used on table with row security`). Conforme instrução do CTO, a Fatia 5 foi parada sem alterar o ADR-003.
 
-- [ ] Migrations `issues` e `issue_events` (§8.2); `issue_events` em hypertable/particionado por tempo com retenção por plano (ADR-003/009) *(bloqueado: decisão CTO sobre RLS vs columnstore no ADR-003)*
+- [ ] Migrations `issues` e `issue_events` (§8.2); `issue_events` em hypertable/particionado por tempo com retenção por plano (ADR-003/009) *(ADR-003 §7: RLS + `REVOKE USAGE` em `_timescaledb_internal`, sem columnstore, TOAST `lz4`)*
 - [ ] Fingerprint por defeito: tipo de excepção + frames `in_app` normalizados (module/filename sem paths absolutos, nomes de função sem endereços/números/hashes, **sem** números de linha); fallback para mensagem normalizada (IDs, números, UUIDs, emails substituídos); suporte ao campo `fingerprint` do SDK incluindo `{{ default }}` (§7.8)
 - [ ] Lifecycle `unresolved | resolved | ignored` com **regressão** (issue `resolved` que volta a ocorrer reabre e marca `regressed`) (§7.8)
 - [ ] Contadores (`occurrence_count`, utilizadores afectados aproximados), `first_seen`/`last_seen`, últimos releases e ambientes, tags mais frequentes
