@@ -340,51 +340,54 @@
 > **Pré-requisitos:** Fase 1 concluída (auth, orgs, RBAC, projectos, credenciais, audit, CI); ADR-003, 004, 009, 015, 017 aprovados.
 
 ### 2.0 Fundações partilhadas do MVP
-- [ ] Fila durável **River** (ADR-004): migrations do River no goose, filas `ingest`/`alerts`/`notifications`/`maintenance`, subcomandos `vigia worker` e `vigia dispatcher` com graceful shutdown e concorrência limitada; benchmark do ADR-004 §6 (§4.4, §13.6)
-- [ ] Jobs periódicos (detecção de picos, digests, retenção, limpezas, agregados de uso) como `PeriodicJobs` do River com eleição de líder dentro do `vigia worker` — **sem** subcomando `vigia scheduler` no MVP (ADR-004 §3.2)
-- [ ] `internal/platform/redaction`: regras partilhadas de scrubbing (lista da §2.3) e lista de dados proibidos (§11.4, §17.3) + testes
-- [ ] `quotas` (mínimo do MVP): eventos de erro/dia por organização, mensagens WhatsApp/mês por organização, projectos e membros; contadores em Redis + `usage_aggregates`; `GET /organizations/:id/usage` e `/quotas` (§17.1, §9.2)
-- [ ] Serviços `worker` e `dispatcher` no `compose.yaml`
+- [x] Fila durável **River** (ADR-004): migrations do River no goose (`00009_river_jobs.sql`), filas `ingest`/`alerts`/`notifications`/`maintenance`, subcomandos `vigia worker` e `vigia dispatcher` com graceful shutdown e concorrência limitada; benchmark do ADR-004 §6 (`internal/platform/jobs/jobs_benchmark_test.go`) (§4.4, §13.6)
+- [x] Jobs periódicos (agregados de uso `quotas.flush_usage` e base para retenção/alertas) como `PeriodicJobs` do River com eleição de líder dentro do `vigia worker` — **sem** subcomando `vigia scheduler` no MVP (ADR-004 §3.2)
+- [x] `internal/platform/redaction`: regras partilhadas de scrubbing (lista da §2.3, Luhn, BI/SSN, Bearer/Basic, Vigia keys, URL/headers, IP /24 e /48, RE2-only com limite de 64 KiB) e testes (§11.4, §17.3)
+- [x] `quotas` (mínimo do MVP): tabela `plans` (`beta`), eventos de erro/dia e /mês em Redis (Lua atómico, fail-closed `503`), avisos 80%/100% únicos, `usage_aggregates`, limites rígidos de projectos e membros, `GET /organizations/:id/usage` e `/quotas` (§17.1, §9.2, ADR-009)
+- [x] Serviços `worker` e `dispatcher` no `compose.yaml`
 
 ### 2.1 Projectos e DSN compatível com Sentry
-- [ ] `projects.public_id`: identificador **numérico** do projecto para o DSN (vários SDKs Sentry, ex. Python, exigem `project_id` inteiro). Gerar aleatório de 53 bits (nunca sequencial: não revelar o número de projectos) com `UNIQUE`
-- [ ] Novo tipo de credencial `dsn` em `api_credentials` (ADR-005): chave pública de 32 hex, presa a projecto/ambiente, **só escrita de erros**, revogável e rotativa; várias por projecto
-- [ ] Formato do DSN: `https://<public_key>@<host>/<public_id>` (ex.: `https://3f2a…@ingest.vigia.ao/4817263`); `GET /projects/:id/credentials` mostra o DSN pronto a copiar
-- [ ] Por chave DSN: `allowed_origins` (para SDKs de browser), rate limit próprio, estado activa/desactivada
-- **🔒 Segurança:** a chave DSN é **pública por natureza** (vai no JavaScript do browser) → nunca dá leitura nem acesso administrativo; abuso controlado por rate limit, quotas, `allowed_origins` e revogação imediata. Teste negativo: chave DSN rejeitada em todas as rotas `/api/v1/*`
+- [x] `projects.public_id`: identificador **numérico** aleatório de 53 bits com `UNIQUE` (migração `00006`, retry ×3 em colisão)
+- [x] Novo tipo de credencial `dsn` em `api_credentials` (ADR-005): chave pública de 32 hex, `SECURITY DEFINER lookup_dsn_key` (`00011`), cache Redis 60s com invalidação imediata em revogação/rotação/delete de projecto ou org
+- [x] Formato do DSN: `https://<public_key>@<host>/<public_id>` usando `INGEST_PUBLIC_URL`; `GET /projects/:id/credentials` devolve o DSN pronto a copiar
+- [x] Por chave DSN: `allowed_origins` (para SDKs de browser), rate limit próprio, privacidade e `inbound_filters` por projecto (`00011`)
+- **🔒 Segurança:**
+  - [x] Chave DSN rejeitada em todas as rotas protegidas `/api/v1/*` (teste dinâmico `TestDSNRejectedOnEveryAPIV1Route` a percorrer o router chi real)
 
-### 2.2 Ingestão compatível com os SDKs Sentry 🧭
+### 2.2 Ingestão compatível com os SDKs Sentry 🧭 *(aguarda revisão do CTO)*
 > Implementar a partir da documentação pública do protocolo (develop.sentry.dev → SDK development). **Não copiar código do servidor Sentry.**
 
-- [ ] Rotas fora de `/api/v1` (contrato dos SDKs): `POST /api/{public_id}/envelope/` e `POST /api/{public_id}/store/` (legacy), com e sem barra final; grupo de rotas próprio com **limite de body e CORS próprios**. ⚠ Hoje `CORSMiddleware` e `MaxBytesMiddleware` estão no router global (`httpserver.NewHandler`): mover para o grupo `/api/v1` antes de montar estas rotas, senão o preflight dos SDKs de browser falha
-- [ ] Autenticação por `X-Sentry-Auth: Sentry sentry_key=…, sentry_version=7, sentry_client=…`, header `Authorization: Sentry …` e query `?sentry_key=&sentry_version=` (browsers); a chave tem de pertencer ao `public_id` do path; `401`/`403` com corpo JSON `{"detail": "..."}`
-- [ ] Descompressão por `Content-Encoding` (`gzip`, `deflate`, `br`; `zstd` conforme ADR-017) com **limite do tamanho descomprimido** (protecção zip-bomb) e leitura em streaming
-- [ ] Parser de envelopes: linha de header (`event_id`, `dsn`, `sent_at`, `sdk`), itens com header (`type`, `length` opcional, `content_type`), itens separados por `\n`; tolerante a campos desconhecidos (o protocolo evolui)
-- [ ] Itens `event` (e o corpo do `/store/`) normalizados para o modelo interno; restantes tipos **aceites e descartados com `200`** e contados numa métrica interna (`sentry_items_dropped_total{type}`)
-- [ ] Normalização do evento: `event_id`, `timestamp` (float epoch ou ISO-8601), `platform`, `level`, `logger`, `message`/`logentry`, `exception.values[]` (type, value, module, mechanism, `stacktrace.frames[]` com filename, abs_path, function, module, lineno, colno, in_app, context_line), `threads`, `release`, `dist`, `environment`, `server_name`, `transaction`, `tags`, `contexts` (os, runtime, browser, device, app), `user`, `request`, `breadcrumbs`, `sdk`, `fingerprint`, `extra`; truncagem de campos grandes
-- [ ] Resposta `200 {"id":"<event_id>"}`; dedup por `event_id` (Redis `SET NX EX` + `UNIQUE` na BD) para retries dos SDKs
-- [ ] Rate limit e quotas **no formato que os SDKs entendem**: `429` + `Retry-After` + `X-Sentry-Rate-Limits: <segundos>:error:organization:quota_exceeded`, para os SDKs pararem de enviar em vez de martelar o servidor
-- [ ] CORS para SDKs de browser nestas rotas: `Access-Control-Allow-Origin` conforme `allowed_origins` da chave (ou `*` sem credenciais se a lista estiver vazia), headers `Content-Type, X-Sentry-Auth, sentry-trace, baggage`, preflight `OPTIONS`
-- [ ] Ingestão rápida: validar, redigir, enfileirar e responder; agrupamento e persistência no `worker`
-- [ ] Sem request body por defeito: descartar `request.data` e cookies enviados pelos SDKs, salvo opt-in explícito do projecto (§7.8, §17.3)
-- [ ] Inbound filters por projecto (como os clientes esperam): ignorar erros de extensões de browser, de `localhost`, de crawlers conhecidos e por `release`/mensagem configurável
+- [x] Rotas fora de `/api/v1`: `POST`/`OPTIONS /api/{public_id}/envelope/` e `/store/` (com e sem barra final); `CORSMiddleware` e `MaxBytesMiddleware` movidos para o grupo `/api/v1` (com teste de regressão)
+- [x] Autenticação por `X-Sentry-Auth`, `Authorization: Sentry`, query `?sentry_key=` e `dsn` do header do envelope; `401`/`403` com `{"detail": "..."}`
+- [x] Descompressão em streaming por `Content-Encoding` (`gzip`, `deflate` zlib/raw, `br`, `zstd` com janela limitada) com limites de 1 MiB comprimido / 10 MiB descomprimido (testes de zip-bomb por algoritmo)
+- [x] Parser de envelopes em streaming (`ParseEnvelope`), tolerante a campos desconhecidos, com validação de `length` e limites ADR-017 §3.7
+- [x] Itens `event` (e `/store/`) normalizados; restantes tipos (`transaction`, `session`, `replay_*`, `attachment`, …) aceites e descartados com `200` e contados em `sentry_items_dropped_total{type}`
+- [x] Normalização do evento e truncagem com `_meta` (excepções, frames, breadcrumbs, tags, mensagens, `extra`, `contexts`, payload final ≤ 256 KiB)
+- [~] Resposta `200 {"id":"<event_id>"}`; dedup rápido em Redis (`SET NX EX 86400`) feito; dedup durável `issue_event_ids` na BD bloqueado pela porta RLS da 2.3
+- [x] Rate limit (1000/min org, 600/min key), quotas e backpressure no formato dos SDKs: `429` + `Retry-After` + `X-Sentry-Rate-Limits`; anúncio de categorias não suportadas (`INGEST_ADVERTISE_UNSUPPORTED`) validado com `sentry-go v0.50.0`
+- [x] CORS para SDKs de browser (`Access-Control-Allow-Origin`, `Access-Control-Expose-Headers: X-Sentry-Rate-Limits, Retry-After`, preflight `OPTIONS`)
+- [x] Ingestão rápida: validar, filtrar, redigir, dedup, quota, enfileirar no River (`ProcessErrorEventArgs`) e responder `200` (benchmark 20 KiB: P95 = 2,0 ms vs alvo < 50 ms)
+- [x] Sem request body nem cookies por defeito salvo opt-in do projecto (`allow_request_body`)
+- [x] Inbound filters por projecto: extensões de browser, `localhost`, crawlers
 - **🔒 Segurança (2.2):**
-  - [ ] Fuzzing (`go test -fuzz`) do parser de envelopes e do parser de `X-Sentry-Auth`
-  - [ ] Testes negativos: zip-bomb, envelope com `length` mentiroso, item gigante, JSON profundo, milhares de frames/breadcrumbs, `public_id` de outra organização, chave revogada, chave de outro projecto
-  - [ ] Scrubbing no servidor **antes** de enfileirar (2.3), independentemente do `send_default_pii` do SDK
-  - [ ] Tenant/projecto/ambiente derivados **só** da chave DSN validada, nunca do payload
+  - [x] Fuzzing (`go test -fuzz`, 2 min por alvo) de `FuzzParseEnvelope` e `FuzzParseSentryAuth`
+  - [x] Testes negativos: zip-bomb por codec, `length` mentiroso, item gigante, JSON profundo (> 64), milhares de frames/breadcrumbs, `public_id` de outro projecto/org, chave revogada, origem não permitida, `sentry_version` inválida
+  - [x] Scrubbing no servidor **antes** de enfileirar, independentemente do `send_default_pii` do SDK
+  - [x] Tenant/projecto/ambiente derivados **só** da chave DSN validada
 
-### 2.3 Processamento: issues, agrupamento e privacidade
-- [ ] Migrations `issues` e `issue_events` (§8.2); `issue_events` em hypertable/particionado por tempo com retenção por plano (ADR-003/009)
+### 2.3 Processamento: issues, agrupamento e privacidade *(BLOQUEADO na porta ADR-003 §6.1 — aguarda decisão do CTO)*
+> **Bloqueio técnico verificado (2026-11-28):** No `timescale/timescaledb:2.32.1-pg18`, combinar `ENABLE ROW LEVEL SECURITY` com `timescaledb.compress` (columnstore) falha com `SQLSTATE 0A000` em ambas as ordens (`operation not supported on hypertables that have columnstore enabled` / `columnstore cannot be used on table with row security`). Conforme instrução do CTO, a Fatia 5 foi parada sem alterar o ADR-003.
+
+- [ ] Migrations `issues` e `issue_events` (§8.2); `issue_events` em hypertable/particionado por tempo com retenção por plano (ADR-003/009) *(bloqueado: decisão CTO sobre RLS vs columnstore no ADR-003)*
 - [ ] Fingerprint por defeito: tipo de excepção + frames `in_app` normalizados (module/filename sem paths absolutos, nomes de função sem endereços/números/hashes, **sem** números de linha); fallback para mensagem normalizada (IDs, números, UUIDs, emails substituídos); suporte ao campo `fingerprint` do SDK incluindo `{{ default }}` (§7.8)
 - [ ] Lifecycle `unresolved | resolved | ignored` com **regressão** (issue `resolved` que volta a ocorrer reabre e marca `regressed`) (§7.8)
 - [ ] Contadores (`occurrence_count`, utilizadores afectados aproximados), `first_seen`/`last_seen`, últimos releases e ambientes, tags mais frequentes
-- [ ] Scrubbing por defeito (equivalente ao que os utilizadores Sentry esperam): chaves `password`, `passwd`, `secret`, `api_key`, `apikey`, `token`, `access_token`, `auth`, `authorization`, `credentials`, `cookie`, `set-cookie`, `session`, `private_key`, `mysql_pwd`; números de cartão (Luhn) e padrões de documentos; headers `Authorization`/`Cookie`; query strings sanitizadas; IP do utilizador guardado só se o projecto o permitir (§7.8, §17.3)
+- [x] Scrubbing por defeito (`internal/platform/redaction`, aplicado na ingestão antes de enfileirar): chaves sensíveis, cartões (Luhn), documentos (BI/SSN), `Authorization`/`Cookie`, query strings, IP `/24` ou `/48` (§7.8, §17.3)
 - [ ] Endpoints: `GET /projects/:id/issues` (filtros: status, ambiente, release, nível, pesquisa; paginação por cursor), `GET /issues/:id`, `GET /issues/:id/events`, `POST /issues/:id/resolve|ignore|unresolve|assign` (§9.2)
 - [ ] Eliminação de issues/eventos (direito do titular) e retenção automática (§17.2)
 - [ ] Testes de agrupamento com fixtures reais de vários SDKs (mesmo erro em linhas diferentes → 1 issue; erros diferentes → issues diferentes)
 - **🔒 Segurança (2.3):**
-  - [ ] Regex só RE2 (`regexp` do Go) com limites de entrada (anti-ReDoS)
+  - [x] Regex só RE2 (`regexp` do Go) com limites de entrada (anti-ReDoS, `internal/platform/redaction`)
   - [ ] Testes de regressão de fuga de PII/credenciais em `issue_events` com dados sintéticos
   - [ ] Cross-tenant em todos os endpoints de issues
 
